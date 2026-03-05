@@ -1,0 +1,37 @@
+cabal-version:      3.0
+name:               tp-arbitraje
+version:            0.1.0.0
+build-type:         Simple
+
+common shared-properties
+    default-language: Haskell2010
+    ghc-options:
+        -Wall
+        -Wcompat
+        -Wincomplete-record-updates
+        -Wincomplete-uni-patterns
+        -Wpartial-fields
+        -Wredundant-constraints
+
+    build-depends:
+        base       >= 4.14 && < 5,
+        aeson      >= 2.0  && < 2.3,
+        req        >= 3.13 && < 3.14,
+        text       >= 1.2  && < 2.2,
+        dotenv     >= 0.11 && < 0.12
+
+library
+    import:           shared-properties
+    hs-source-dirs:   src
+    exposed-modules:
+        Binance.API.Client
+        Binance.API.Types
+        Binance.API.Endpoints
+        Bot.Config
+
+executable tp-arbitraje
+    import:           shared-properties
+    main-is:          Main.hs
+    hs-source-dirs:   app
+    build-depends:    tp-arbitraje
+    ghc-options:      -threaded
