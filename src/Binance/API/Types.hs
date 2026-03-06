@@ -2,9 +2,12 @@
 {-# LANGUAGE DeriveGeneric #-}
 
 module Binance.API.Types
-    ( Symbol(..)
+    ( Asset(..)
+    , Pair(..)
+    , Symbol(..)
     , Price(..)
     , TickerPrice(..)
+    , pairToSymbol
     ) where
 
 import Data.Aeson
@@ -12,8 +15,20 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import GHC.Generics
 
+data Asset = BTC | ETH | USDT | BNB 
+  deriving (Show, Eq, Ord)
+
+data Pair = Pair { base :: Asset, quote :: Asset }
+  deriving (Show, Eq, Ord)
+
 newtype Symbol = Symbol { unSymbol :: Text }
     deriving (Show, Eq, Ord, Generic)
+
+assetToText :: Asset -> Text
+assetToText = T.pack . show
+
+pairToSymbol :: Pair -> Symbol
+pairToSymbol (Pair b q) = Symbol $ assetToText b <> assetToText q
 
 instance FromJSON Symbol where
     parseJSON = fmap Symbol . parseJSON
