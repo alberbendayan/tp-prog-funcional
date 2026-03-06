@@ -76,14 +76,17 @@ makeGetRequest baseUrl endpoint params responseType = do
 
 mkRequest :: String -> Text -> [(Text, Text)] -> (Url 'Https, Option 'Https)
 mkRequest baseUrl endpoint params =
-    let host = T.pack $ drop 8 baseUrl
+    let httpsPrefix = "https://" :: String
+        host = T.pack $ drop (length httpsPrefix) baseUrl
         -- drop :: Int -> [a] -> [a]
+        -- length :: [a] -> Int
         pathParts = filter (not . T.null) $ T.splitOn "/" endpoint
         -- filter :: (a -> Bool) -> [a] -> [a]
         -- not :: Bool -> Bool
         url = foldl (/:) (https host) pathParts
         -- foldl :: (b -> a -> b) -> b -> [a] -> b
         reqParams = mconcat $ map (\(k, v) -> k =: v) params
+        -- (=:) :: ToHttpApiData a => Text -> a -> Option scheme
         -- mconcat :: Monoid a => [a] -> a
         -- map :: (a -> b) -> [a] -> [b]
     in (url, reqParams)
