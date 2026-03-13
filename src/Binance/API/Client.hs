@@ -4,8 +4,7 @@
 
 module Binance.API.Client
     ( ping
-    , getPrice
-    , getAllPrices
+    , getBookTicker
     , BinanceError(..)
     ) where
 
@@ -13,6 +12,8 @@ import Binance.API.Types
 import Binance.API.Endpoints
 import Control.Exception (Exception, try, SomeException)
 -- try :: Exception e => IO a -> IO (Either e a)
+import Data.Aeson (FromJSON)
+-- FromJSON :: Type class for types that can be parsed from JSON
 import Data.Text (Text)
 import qualified Data.Text as T
 -- T.pack :: String -> Text
@@ -45,19 +46,20 @@ ping baseUrl = do
         Left err -> return $ Left err
         Right _ -> return $ Right True
 
-getPrice :: String -> Text -> IO (Either BinanceError TickerPrice)
-getPrice baseUrl symbol = do
-    result <- makeGetRequest baseUrl tickerPriceEndpoint [("symbol", symbol)] jsonResponse
-    case result of
-        Left err -> return $ Left err
-        Right jsonResp -> return $ Right $ responseBody jsonResp
+-- Función auxiliar que hace GET request JSON y extrae el responseBody
+-- fmap (fmap responseBody) aplica dos transformaciones:
+--   1. El primer fmap mapea sobre IO (el contexto externo)
+--   2. El segundo fmap mapea sobre Either (el contexto interno)
+-- Resultado: IO (Either BinanceError response) → IO (Either BinanceError a)
+makeJsonGetRequest :: FromJSON a 
+                   => String -> Text -> [(Text, Text)] 
+                   -> IO (Either BinanceError a)
+makeJsonGetRequest baseUrl endpoint params = 
+    fmap (fmap responseBody) $ makeGetRequest baseUrl endpoint params jsonResponse
 
-getAllPrices :: String -> IO (Either BinanceError [TickerPrice])
-getAllPrices baseUrl = do
-    result <- makeGetRequest baseUrl tickerPriceEndpoint [] jsonResponse
-    case result of
-        Left err -> return $ Left err
-        Right jsonResp -> return $ Right $ responseBody jsonResp
+getBookTicker :: String -> Text -> IO (Either BinanceError BookTicker)
+getBookTicker baseUrl symbol =
+    makeJsonGetRequest baseUrl bookTickerEndpoint [("symbol", symbol)]
 
 
 makeGetRequest :: HttpResponse response 

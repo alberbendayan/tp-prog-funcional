@@ -31,17 +31,17 @@ import Data.Time.Clock (UTCTime)
 import GHC.Generics (Generic)
 import Binance.API.Types (Pair(..), Asset(..), Price(..))
 
-data PairQuote = PairQuote
-  { bidPrice :: Price
-  , askPrice :: Price
-  } deriving (Show, Eq, Ord, Generic)
-
 newtype CommissionRate = CommissionRate { unCommissionRate :: Double }
   deriving (Show, Eq, Ord, Generic)
 
+data PairQuote = PairQuote
+  { bidPrice         :: Price
+  , askPrice         :: Price
+  , pairCommission   :: CommissionRate
+  } deriving (Show, Eq, Ord, Generic)
+
 data MarketSnapshot = MarketSnapshot
-  { snapshotQuotes     :: Map Pair PairQuote
-  , snapshotCommission :: CommissionRate
+  { snapshotQuotes :: Map Pair PairQuote
   } deriving (Show, Eq, Generic)
 
 data TriangularPath = TriangularPath

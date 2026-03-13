@@ -29,8 +29,10 @@ library
         Binance.API.Client
         Binance.API.Types
         Binance.API.Endpoints
+        Binance.API.Conversion
         Bot.Config
         Bot.Domain
+        Bot.Arbitraje
         Notification.Types
         Notification.Telegram
 

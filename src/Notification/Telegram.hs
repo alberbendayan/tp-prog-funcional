@@ -5,12 +5,14 @@
 
 module Notification.Telegram
     ( sendTelegramMessage
-    , formatOpportunityTelegram
+    , formatBookTickersTelegram
+    , formatDecision
     ) where
 
 import Notification.Types
 import Binance.API.Types
 import Bot.Config
+import Bot.Domain
 import Control.Exception (try, SomeException)
 import qualified Data.Text as T
 import Data.Aeson
@@ -64,22 +66,44 @@ handleTelegramResult (Right resp)
     | ok resp   = Right ()
     | otherwise = Left $ TelegramSendError "Telegram API returned ok=false"
 
-formatOpportunityTelegram :: [TickerPrice] -> String
-formatOpportunityTelegram prices =
+formatBookTickersTelegram :: [BookTicker] -> String
+formatBookTickersTelegram tickers =
     let msgHeader = unlines
-            [ "🚨 Notificacion de Precios"
+            [ "📊 Book Tickers (Bid/Ask)"
             , "=========================="
             , ""
             ]
-        body = unlines $ map formatSinglePrice prices
+        body = unlines $ map formatSingleBookTicker tickers
         footer = unlines
             [ ""
             , "Bot de arbitraje @arbitrin."
             ]
     in msgHeader ++ body ++ footer
 
-formatSinglePrice :: TickerPrice -> String
-formatSinglePrice tickerPrice =
-    let symbol = T.unpack $ unSymbol $ tpSymbol tickerPrice
-        price = unPrice $ tpPrice tickerPrice
-    in "  " ++ symbol ++ ": $" ++ show price
+formatDecision :: Decision -> String
+formatDecision NoTrade = "Sin oportunidades de arbitraje rentables."
+formatDecision (DoTrade opp) =
+    let path = arbPath opp
+        p1   = show (arbPair1 path)
+        p2   = show (arbPair2 path)
+        p3   = show (arbPair3 path)
+        perc = arbProfitPerc opp
+        absP = arbProfitAbs opp
+    in unlines
+        [ "Oportunidad: " ++ p1 ++ " -> " ++ p2 ++ " -> " ++ p3
+        , "Ganancia: " ++ show perc ++ "% (" ++ show absP ++ " USDT)"
+        , "Entrada: " ++ show (arbAmountIn opp)
+        , "Salida esperada: " ++ show (arbAmountOut opp)
+        ]
+
+formatSingleBookTicker :: BookTicker -> String
+formatSingleBookTicker bt =
+    let symbol = T.unpack $ unSymbol $ btSymbol bt
+        bid = unPrice $ btBidPrice bt
+        ask = unPrice $ btAskPrice bt
+        spread = ask - bid
+        spreadPerc = (spread / bid) * 100
+    in "  " ++ symbol ++ ":\n" 
+       ++ "    Bid: $" ++ show bid ++ "\n"
+       ++ "    Ask: $" ++ show ask ++ "\n"
+       ++ "    Spread: " ++ show spreadPerc ++ "%"

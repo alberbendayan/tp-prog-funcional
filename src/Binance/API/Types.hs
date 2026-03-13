@@ -7,6 +7,7 @@ module Binance.API.Types
     , Symbol(..)
     , Price(..)
     , TickerPrice(..)
+    , BookTicker(..)
     , pairToSymbol
     ) where
 
@@ -63,4 +64,37 @@ instance ToJSON TickerPrice where
     toJSON tp = object
         [ "symbol" .= tpSymbol tp
         , "price"  .= tpPrice tp
+        ]
+
+data BookTicker = BookTicker
+    { btSymbol   :: Symbol
+    , btBidPrice :: Price
+    , btBidQty   :: Double
+    , btAskPrice :: Price
+    , btAskQty   :: Double
+    } deriving (Show, Eq, Generic)
+
+instance FromJSON BookTicker where
+    parseJSON = withObject "BookTicker" $ \o -> do
+        symbol   <- o .: "symbol"
+        bidPrice <- o .: "bidPrice"
+        bidQtyStr <- o .: "bidQty"
+        askPrice <- o .: "askPrice"
+        askQtyStr <- o .: "askQty"
+        -- Parsear bidQty y askQty como String y convertir a Double
+        bidQty <- case reads (T.unpack bidQtyStr) of
+            [(d, "")] -> return d
+            _         -> fail "Invalid bidQty string"
+        askQty <- case reads (T.unpack askQtyStr) of
+            [(d, "")] -> return d
+            _         -> fail "Invalid askQty string"
+        return $ BookTicker symbol bidPrice bidQty askPrice askQty
+
+instance ToJSON BookTicker where
+    toJSON bt = object
+        [ "symbol"   .= btSymbol bt
+        , "bidPrice" .= btBidPrice bt
+        , "bidQty"   .= btBidQty bt
+        , "askPrice" .= btAskPrice bt
+        , "askQty"   .= btAskQty bt
         ]

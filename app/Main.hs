@@ -3,57 +3,63 @@
 module Main where
 
 import Bot.Config
+import Bot.Domain
+import Bot.Arbitraje
 import Binance.API.Client
 import Binance.API.Types
+import Binance.API.Conversion
 import Notification.Telegram
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Control.Monad (when)
 
+-- | Monedas que queremos monitorear
+-- Solo definís las monedas, los pares se generan automáticamente
+tradingAssets :: [Asset]
+tradingAssets = [BTC, ETH, BNB, USDT]
+
 main :: IO ()
 main = do
     config <- loadConfig
     let baseUrl = cfgBaseUrl config
-    
+
     pingResult <- ping baseUrl
     case pingResult of
         Left err -> putStrLn $ "Error: " ++ show err
         Right _ -> putStrLn "Conectividad OK"
-    
-    
-    putStrLn "Obteniendo precios de BTC, ETH y BNB..."
-    
-    btcResult <- getPrice baseUrl "BTCUSDT"
-    ethResult <- getPrice baseUrl "ETHUSDT"
-    bnbResult <- getPrice baseUrl "BNBUSDT"
-    
-    let allResults = [btcResult, ethResult, bnbResult]
-    let successfulPrices = collectSuccessfulPrices allResults
-    
-    displayPrices successfulPrices
-    notifyViaTelegram config successfulPrices
 
-collectSuccessfulPrices :: [Either BinanceError TickerPrice] -> [TickerPrice]
-collectSuccessfulPrices results = 
-    [price | Right price <- results]
+    let allPairs = generateAllPairs tradingAssets
 
-displayPrices :: [TickerPrice] -> IO ()
-displayPrices [] = putStrLn "No se pudo obtener ningun precio"
-displayPrices prices = mapM_ displaySinglePrice prices
+    tickers <- fetchBookTickersForPairs baseUrl allPairs
 
-displaySinglePrice :: TickerPrice -> IO ()
-displaySinglePrice tickerPrice = do
-    let symbol = unSymbol $ tpSymbol tickerPrice
-    let price = unPrice $ tpPrice tickerPrice
-    TIO.putStrLn $ symbol <> " = $" <> T.pack (show price)
+    displayBookTickers tickers
 
-notifyViaTelegram :: Config -> [TickerPrice] -> IO ()
-notifyViaTelegram _ [] = return ()
-notifyViaTelegram config prices = do
+    let commission  = CommissionRate (cfgCommissionRate config)
+        snapshot    = buildMarketSnapshot tickers commission
+        paths       = allTriangularPaths tradingAssets
+        amountIn    = cfgMaxTradeUSDT config
+        opps        = detectOpportunities paths snapshot amountIn
+        decision    = makeDecision (cfgMinProfit config) opps
+
+    putStrLn $ "\n" ++ formatDecision decision
+
     when (cfgTelegramEnabled config) $ do
-        putStrLn "Enviando notificacion por Telegram..."
-        let telegramMsg = formatOpportunityTelegram prices
-        telegramResult <- sendTelegramMessage config telegramMsg
+        telegramResult <- sendTelegramMessage config (formatDecision decision)
         case telegramResult of
             Left err -> putStrLn $ "Error enviando Telegram: " ++ show err
-            Right _ -> putStrLn "Notificacion de Telegram enviada exitosamente"
+            Right _  -> putStrLn "Notificacion de Telegram enviada exitosamente"
+
+displayBookTickers :: [BookTicker] -> IO ()
+displayBookTickers [] = putStrLn "No se pudo obtener ningun ticker"
+displayBookTickers tickers = mapM_ displaySingleBookTicker tickers
+
+displaySingleBookTicker :: BookTicker -> IO ()
+displaySingleBookTicker bt = do
+    let symbol = unSymbol $ btSymbol bt
+    let bid = unPrice $ btBidPrice bt
+    let ask = unPrice $ btAskPrice bt
+    let spread = ask - bid
+    let spreadPerc = (spread / bid) * 100
+    TIO.putStrLn $ symbol <> " | Bid: $" <> T.pack (show bid)
+                          <> " | Ask: $" <> T.pack (show ask)
+                          <> " | Spread: " <> T.pack (show spreadPerc) <> "%"
