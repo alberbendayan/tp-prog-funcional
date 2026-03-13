@@ -30,6 +30,8 @@ library
         Binance.API.Types
         Binance.API.Endpoints
         Binance.API.Conversion
+        Binance.API.Instance
+        Exchange.Interface
         Bot.Config
         Bot.Domain
         Bot.Arbitraje

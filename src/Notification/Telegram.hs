@@ -56,7 +56,6 @@ sendTelegramRequest config message = do
     
     response <- runReq defaultHttpConfig $ do
         req POST url (ReqBodyJson payload) jsonResponse mempty
-    -- mempty :: Option 'Https y representa las opciones vacias
     
     return (responseBody response :: TelegramResponse)
 

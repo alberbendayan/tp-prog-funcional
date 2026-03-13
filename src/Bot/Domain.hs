@@ -84,7 +84,7 @@ data Decision
   | DoTrade ArbOpportunity
   deriving (Show, Eq, Generic)
 
-data OrderSide = Buy | Sell --sobre el base asset
+data OrderSide = Buy | Sell
   deriving (Show, Eq, Ord, Generic)
 
 data OrderStep = OrderStep

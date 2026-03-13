@@ -26,8 +26,6 @@ parseAsset "USDT" = Just USDT
 parseAsset "BNB"  = Just BNB
 parseAsset _      = Nothing
 
--- | Parsea un símbolo como "BTCUSDT" a un Pair
--- Intenta todas las combinaciones posibles de assets conocidos
 parseSymbol :: Text -> Maybe Pair
 parseSymbol symbol = tryParse [("BTC", BTC), ("ETH", ETH), ("USDT", USDT), ("BNB", BNB)]
   where
@@ -41,11 +39,9 @@ parseSymbol symbol = tryParse [("BTC", BTC), ("ETH", ETH), ("USDT", USDT), ("BNB
                Nothing -> tryParse rest
         else tryParse rest
 
--- | Convierte un Symbol a un Pair (usando parseSymbol)
 symbolToPair :: Symbol -> Maybe Pair
 symbolToPair (Symbol s) = parseSymbol s
 
--- | Convierte un BookTicker a un PairQuote con su comisión
 bookTickerToPairQuote :: CommissionRate -> BookTicker -> PairQuote
 bookTickerToPairQuote commission bt = PairQuote
     { bidPrice       = btBidPrice bt
@@ -53,7 +49,6 @@ bookTickerToPairQuote commission bt = PairQuote
     , pairCommission = commission
     }
 
--- | Construye un MarketSnapshot a partir de una lista de BookTickers
 convertTicker :: CommissionRate -> BookTicker -> Maybe (Pair, PairQuote)
 convertTicker commission bt = do
     pair <- symbolToPair (btSymbol bt)

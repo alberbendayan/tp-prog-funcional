@@ -81,7 +81,6 @@ instance FromJSON BookTicker where
         bidQtyStr <- o .: "bidQty"
         askPrice <- o .: "askPrice"
         askQtyStr <- o .: "askQty"
-        -- Parsear bidQty y askQty como String y convertir a Double
         bidQty <- case reads (T.unpack bidQtyStr) of
             [(d, "")] -> return d
             _         -> fail "Invalid bidQty string"
