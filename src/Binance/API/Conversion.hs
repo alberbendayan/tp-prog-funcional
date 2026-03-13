@@ -5,6 +5,7 @@ module Binance.API.Conversion
     , symbolToPair
     , bookTickerToPairQuote
     , buildMarketSnapshot
+    , TickerResult(..)
     , fetchBookTickersForPairs
     , generateAllPairs
     ) where
@@ -17,8 +18,8 @@ import qualified Data.Text as T
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
+import Data.List (isInfixOf)
 
--- | Parsea un símbolo de texto a un Asset
 parseAsset :: Text -> Maybe Asset
 parseAsset "BTC"  = Just BTC
 parseAsset "ETH"  = Just ETH
@@ -62,6 +63,13 @@ buildMarketSnapshot bookTickers commission = MarketSnapshot
     { snapshotQuotes = tickersToQuoteMap commission bookTickers
     }
 
+data TickerResult
+  = TickerOk BookTicker            
+  | TickerNotSupported Symbol      
+  | TickerFailed Client.BinanceError 
+
+
+
 pairsForBase :: [Asset] -> Asset -> [Pair]
 pairsForBase assets baseAsset =
     let validQuotes = filter (/= baseAsset) assets
@@ -71,18 +79,18 @@ generateAllPairs :: [Asset] -> [Pair]
 generateAllPairs assets =
     concatMap (pairsForBase assets) assets
 
-toMaybe :: Either a b -> Maybe b
-toMaybe (Right x) = Just x
-toMaybe (Left _)  = Nothing
+fetchSingleTicker :: String -> Symbol -> IO TickerResult
+fetchSingleTicker url sym@(Symbol rawSym) = do
+  result <- Client.getBookTicker url rawSym
+  case result of
+    Right bt -> return (TickerOk bt)
+    Left (Client.NetworkError msg)
+      | "Invalid symbol" `isInfixOf` msg
+      -> return (TickerNotSupported sym)
+    Left err -> return (TickerFailed err)
 
-collectSuccessful :: [Either Client.BinanceError BookTicker] -> [BookTicker]
-collectSuccessful = mapMaybe toMaybe
-
-fetchSingleTicker :: String -> Symbol -> IO (Either Client.BinanceError BookTicker)
-fetchSingleTicker url (Symbol sym) = Client.getBookTicker url sym
-
-fetchBookTickersForPairs :: String -> [Pair] -> IO [BookTicker]
+fetchBookTickersForPairs :: String -> [Pair] -> IO [TickerResult]
 fetchBookTickersForPairs baseUrl pairs = do
     let symbols = map pairToSymbol pairs
     results <- mapM (fetchSingleTicker baseUrl) symbols
-    return $ collectSuccessful results
+    return results
