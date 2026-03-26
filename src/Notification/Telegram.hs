@@ -5,12 +5,10 @@
 
 module Notification.Telegram
     ( sendTelegramMessage
-    , formatBookTickersTelegram
     , formatDecision
     ) where
 
 import Notification.Types
-import Binance.API.Types
 import Bot.Config
 import Bot.Domain
 import Control.Exception (try, SomeException)
@@ -65,20 +63,6 @@ handleTelegramResult (Right resp)
     | ok resp   = Right ()
     | otherwise = Left $ TelegramSendError "Telegram API returned ok=false"
 
-formatBookTickersTelegram :: [BookTicker] -> String
-formatBookTickersTelegram tickers =
-    let msgHeader = unlines
-            [ "📊 Book Tickers (Bid/Ask)"
-            , "=========================="
-            , ""
-            ]
-        body = unlines $ map formatSingleBookTicker tickers
-        footer = unlines
-            [ ""
-            , "Bot de arbitraje @arbitrin."
-            ]
-    in msgHeader ++ body ++ footer
-
 formatDecision :: Decision -> String
 formatDecision NoTrade = "Sin oportunidades de arbitraje rentables."
 formatDecision (DoTrade opp) =
@@ -95,14 +79,3 @@ formatDecision (DoTrade opp) =
         , "Salida esperada: " ++ show (arbAmountOut opp)
         ]
 
-formatSingleBookTicker :: BookTicker -> String
-formatSingleBookTicker bt =
-    let symbol = T.unpack $ unSymbol $ btSymbol bt
-        bid = unPrice $ btBidPrice bt
-        ask = unPrice $ btAskPrice bt
-        spread = ask - bid
-        spreadPerc = (spread / bid) * 100
-    in "  " ++ symbol ++ ":\n" 
-       ++ "    Bid: $" ++ show bid ++ "\n"
-       ++ "    Ask: $" ++ show ask ++ "\n"
-       ++ "    Spread: " ++ show spreadPerc ++ "%"

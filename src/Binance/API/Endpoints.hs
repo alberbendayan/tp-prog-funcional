@@ -2,8 +2,9 @@
 
 module Binance.API.Endpoints
     ( pingEndpoint
-    , tickerPriceEndpoint
     , bookTickerEndpoint
+    , tradeFeeEndpoint
+    , accountEndpoint
     ) where
 
 import Data.Text (Text)
@@ -11,8 +12,11 @@ import Data.Text (Text)
 pingEndpoint :: Text
 pingEndpoint = "/api/v3/ping"
 
-tickerPriceEndpoint :: Text
-tickerPriceEndpoint = "/api/v3/ticker/price"
-
 bookTickerEndpoint :: Text
 bookTickerEndpoint = "/api/v3/ticker/bookTicker"
+
+tradeFeeEndpoint :: Text
+tradeFeeEndpoint = "/sapi/v1/asset/tradeFee"
+
+accountEndpoint :: Text
+accountEndpoint = "/api/v3/account"

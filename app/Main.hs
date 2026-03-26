@@ -20,6 +20,8 @@ main = do
     let exchange = BinanceExchange
             { binanceBaseUrl           = cfgBaseUrl config
             , binanceDefaultCommission = CommissionRate (cfgCommissionRate config)
+            , binanceApiKey            = cfgApiKey config
+            , binanceApiSecret         = cfgApiSecret config
             }
 
     pingResult <- checkConnectivity exchange

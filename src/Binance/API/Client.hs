@@ -5,16 +5,21 @@
 module Binance.API.Client
     ( ping
     , getBookTicker
+    , getTradeFees
+    , getAccountInfo
     , BinanceError(..)
     ) where
 
 import Binance.API.Types
 import Binance.API.Endpoints
+import qualified Binance.API.Auth as Auth
 import Control.Exception (Exception, try, SomeException)
 import Data.Aeson (FromJSON)
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.ByteString.Char8 as BSC
 import Data.Proxy (Proxy)
+import Data.Time.Clock.POSIX (getPOSIXTime)
 import Network.HTTP.Req
 
 data BinanceError 
@@ -42,6 +47,42 @@ getBookTicker :: String -> Text -> IO (Either BinanceError BookTicker)
 getBookTicker baseUrl symbol =
     makeJsonGetRequest baseUrl bookTickerEndpoint [("symbol", symbol)]
 
+getAccountInfo :: String -> String -> String -> IO (Either BinanceError AccountInfo)
+getAccountInfo baseUrl apiKey apiSecret = do
+    posixTime <- getPOSIXTime
+    let ts       = show (floor (posixTime * 1000) :: Integer)
+        queryStr = "timestamp=" ++ ts
+        sig      = Auth.signQueryString apiSecret queryStr
+        params   = [("timestamp", T.pack ts), ("signature", T.pack sig)]
+    makeAuthJsonGetRequest baseUrl accountEndpoint params apiKey
+
+getTradeFees :: String -> String -> String -> IO (Either BinanceError [TradeFee])
+getTradeFees baseUrl apiKey apiSecret = do
+    posixTime <- getPOSIXTime
+    let ts       = show (floor (posixTime * 1000) :: Integer)
+        queryStr = "timestamp=" ++ ts
+        sig      = Auth.signQueryString apiSecret queryStr
+        params   = [("timestamp", T.pack ts), ("signature", T.pack sig)]
+    makeAuthJsonGetRequest baseUrl tradeFeeEndpoint params apiKey
+
+makeAuthJsonGetRequest :: FromJSON a
+                       => String -> Text -> [(Text, Text)] -> String
+                       -> IO (Either BinanceError a)
+makeAuthJsonGetRequest baseUrl endpoint params apiKey =
+    fmap (fmap responseBody) $ makeAuthGetRequest baseUrl endpoint params apiKey jsonResponse
+
+makeAuthGetRequest :: HttpResponse response
+                   => String -> Text -> [(Text, Text)] -> String -> Proxy response
+                   -> IO (Either BinanceError response)
+makeAuthGetRequest baseUrl endpoint params apiKey responseType = do
+    result <- try $ runReq defaultHttpConfig $ do
+        let (url, reqParams) = mkRequest baseUrl endpoint params
+            authHeader       = header "X-MBX-APIKEY" (BSC.pack apiKey)
+        response <- req GET url NoReqBody responseType (reqParams <> authHeader)
+        return response
+    case result of
+        Left (e :: SomeException) -> return $ Left $ NetworkError (show e)
+        Right resp                -> return $ Right resp
 
 makeGetRequest :: HttpResponse response 
                => String -> Text -> [(Text, Text)] -> Proxy response -> IO (Either BinanceError response)

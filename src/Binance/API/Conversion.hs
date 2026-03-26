@@ -1,10 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Binance.API.Conversion
-    ( parseSymbol
-    , symbolToPair
-    , bookTickerToPairQuote
-    , buildMarketSnapshot
+    ( tradeFeeMap
+    , buildMarketSnapshotWithFees
     , TickerResult(..)
     , fetchBookTickersForPairs
     , generateAllPairs
@@ -50,25 +48,33 @@ bookTickerToPairQuote commission bt = PairQuote
     , pairCommission = commission
     }
 
-convertTicker :: CommissionRate -> BookTicker -> Maybe (Pair, PairQuote)
-convertTicker commission bt = do
-    pair <- symbolToPair (btSymbol bt)
-    return (pair, bookTickerToPairQuote commission bt)
+tradeFeeMap :: [TradeFee] -> Map Pair CommissionRate
+tradeFeeMap fees = Map.fromList $ mapMaybe toEntry fees
+  where
+    toEntry (TradeFee sym (Price rate)) = do
+        pair <- symbolToPair sym
+        return (pair, CommissionRate rate)
 
-tickersToQuoteMap :: CommissionRate -> [BookTicker] -> Map Pair PairQuote
-tickersToQuoteMap commission bookTickers = Map.fromList (mapMaybe (convertTicker commission) bookTickers)
+tickersToQuoteMapWithFees
+    :: [BookTicker] -> Map Pair CommissionRate -> CommissionRate -> Map Pair PairQuote
+tickersToQuoteMapWithFees bookTickers feeMap defaultCommission =
+    Map.fromList $ mapMaybe convertWithFee bookTickers
+  where
+    convertWithFee bt = do
+        pair <- symbolToPair (btSymbol bt)
+        let commission = Map.findWithDefault defaultCommission pair feeMap
+        return (pair, bookTickerToPairQuote commission bt)
 
-buildMarketSnapshot :: [BookTicker] -> CommissionRate -> MarketSnapshot
-buildMarketSnapshot bookTickers commission = MarketSnapshot
-    { snapshotQuotes = tickersToQuoteMap commission bookTickers
+buildMarketSnapshotWithFees
+    :: [BookTicker] -> Map Pair CommissionRate -> CommissionRate -> MarketSnapshot
+buildMarketSnapshotWithFees bookTickers feeMap defaultCommission = MarketSnapshot
+    { snapshotQuotes = tickersToQuoteMapWithFees bookTickers feeMap defaultCommission
     }
 
 data TickerResult
-  = TickerOk BookTicker            
-  | TickerNotSupported Symbol      
-  | TickerFailed Client.BinanceError 
-
-
+  = TickerOk BookTicker
+  | TickerNotSupported Symbol
+  | TickerFailed Client.BinanceError
 
 pairsForBase :: [Asset] -> Asset -> [Pair]
 pairsForBase assets baseAsset =
