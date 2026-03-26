@@ -34,7 +34,7 @@ main = do
         Left err -> putStrLn $ "Error obteniendo mercado: " ++ show err
         Right snapshot -> do
             let paths    = allTriangularPaths tradingAssets
-                amountIn = cfgMaxTradeUSDT config
+                amountIn = AssetQty USDT (cfgMaxTradeUSDT config)
                 opps     = detectOpportunities paths snapshot amountIn
                 decision = makeDecision (cfgMinProfit config) opps
 

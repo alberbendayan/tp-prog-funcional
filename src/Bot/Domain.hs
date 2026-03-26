@@ -4,6 +4,8 @@ module Bot.Domain
   ( MarketSnapshot(..)
   , PairQuote(..)
   , CommissionRate(..)
+  , AssetQty(..)
+  , BaseQty(..)
   , TriangularPath
   , arbPair1
   , arbPair2
@@ -23,6 +25,7 @@ module Bot.Domain
   , RoundStatus(..)
   , RoundResult(..)
   , roundPnl
+  , roundPnlAmount
   ) where
 
 import Data.Maybe (fromJust)
@@ -32,6 +35,17 @@ import GHC.Generics (Generic)
 import Binance.API.Types (Pair(..), Asset(..), Price(..))
 
 newtype CommissionRate = CommissionRate { unCommissionRate :: Double }
+  deriving (Show, Eq, Ord, Generic)
+
+-- | Quantity tagged with the asset it refers to.
+-- | This makes units explicit when reading function signatures.
+data AssetQty = AssetQty
+  { qtyAsset  :: Asset
+  , qtyAmount :: Double
+  } deriving (Show, Eq, Ord, Generic)
+
+-- | Quantity expressed in the base asset of a Pair (used for market SELL steps).
+newtype BaseQty = BaseQty { unBaseQty :: Double }
   deriving (Show, Eq, Ord, Generic)
 
 data PairQuote = PairQuote
@@ -67,16 +81,16 @@ mkAllTriangularPaths a b c =
 
 data ArbOpportunity = ArbOpportunity
   { arbPath      :: TriangularPath
-  , arbAmountIn  :: Double
-  , arbAmountOut :: Double
+  , arbAmountIn  :: AssetQty
+  , arbAmountOut :: AssetQty
   } deriving (Show, Eq, Generic)
 
 arbProfitAbs :: ArbOpportunity -> Double
-arbProfitAbs o = arbAmountOut o - arbAmountIn o
+arbProfitAbs o = qtyAmount (arbAmountOut o) - qtyAmount (arbAmountIn o)
 
 arbProfitPerc :: ArbOpportunity -> Double
 arbProfitPerc o
-  | arbAmountIn o > 0 = 100 * arbProfitAbs o / arbAmountIn o
+  | qtyAmount (arbAmountIn o) > 0 = 100 * arbProfitAbs o / qtyAmount (arbAmountIn o)
   | otherwise         = 0
 
 data Decision
@@ -90,24 +104,24 @@ data OrderSide = Buy | Sell
 data OrderStep = OrderStep
   { stepPair       :: Pair
   , stepSide       :: OrderSide
-  , stepAmountBase :: Double
+  , stepBaseQty    :: BaseQty
   } deriving (Show, Eq, Generic)
 
 data ExecutionPlan = ExecutionPlan
   { planPath    :: TriangularPath
-  , planAmount1 :: Double
-  , planAmount2 :: Double
-  , planAmount3 :: Double
+  , planStep1BaseQty :: BaseQty
+  , planStep2BaseQty :: BaseQty
+  , planStep3BaseQty :: BaseQty
   } deriving (Show, Eq, Generic)
 
-mkExecutionPlan :: TriangularPath -> Double -> Double -> Double -> ExecutionPlan
-mkExecutionPlan path a1 a2 a3 = ExecutionPlan path a1 a2 a3
+mkExecutionPlan :: TriangularPath -> BaseQty -> BaseQty -> BaseQty -> ExecutionPlan
+mkExecutionPlan path q1 q2 q3 = ExecutionPlan path q1 q2 q3
 
 executionPlanSteps :: ExecutionPlan -> [OrderStep]
 executionPlanSteps ep =
-  [ OrderStep (arbPair1 $ planPath ep) Sell (planAmount1 ep)
-  , OrderStep (arbPair2 $ planPath ep) Sell (planAmount2 ep)
-  , OrderStep (arbPair3 $ planPath ep) Sell (planAmount3 ep)
+  [ OrderStep (arbPair1 $ planPath ep) Sell (planStep1BaseQty ep)
+  , OrderStep (arbPair2 $ planPath ep) Sell (planStep2BaseQty ep)
+  , OrderStep (arbPair3 $ planPath ep) Sell (planStep3BaseQty ep)
   ]
 
 data Fill = Fill
@@ -127,10 +141,20 @@ data RoundStatus
 
 data RoundResult = RoundResult
   { roundFills     :: [Fill]
-  , roundAmountIn  :: Double
-  , roundAmountOut :: Double
+  , roundAmountIn  :: AssetQty
+  , roundAmountOut :: AssetQty
   , roundStatus    :: RoundStatus
   } deriving (Show, Eq, Generic)
 
-roundPnl :: RoundResult -> Double
-roundPnl r = roundAmountOut r - roundAmountIn r
+roundPnl :: RoundResult -> Either String AssetQty
+roundPnl r
+  | qtyAsset (roundAmountIn r) /= qtyAsset (roundAmountOut r) =
+      Left "roundPnl: roundAmountIn/out tienen assets distintos"
+  | otherwise =
+      Right $ AssetQty
+        { qtyAsset  = qtyAsset (roundAmountIn r)
+        , qtyAmount = qtyAmount (roundAmountOut r) - qtyAmount (roundAmountIn r)
+        }
+
+roundPnlAmount :: RoundResult -> Either String Double
+roundPnlAmount r = qtyAmount <$> roundPnl r

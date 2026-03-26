@@ -75,7 +75,7 @@ formatDecision (DoTrade opp) =
     in unlines
         [ "Oportunidad: " ++ p1 ++ " -> " ++ p2 ++ " -> " ++ p3
         , "Ganancia: " ++ show perc ++ "% (" ++ show absP ++ " USDT)"
-        , "Entrada: " ++ show (arbAmountIn opp)
-        , "Salida esperada: " ++ show (arbAmountOut opp)
+        , "Entrada: " ++ show (qtyAmount (arbAmountIn opp)) ++ " " ++ show (qtyAsset (arbAmountIn opp))
+        , "Salida esperada: " ++ show (qtyAmount (arbAmountOut opp)) ++ " " ++ show (qtyAsset (arbAmountOut opp))
         ]
 

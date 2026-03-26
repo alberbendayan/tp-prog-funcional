@@ -6,6 +6,7 @@ module Binance.API.Types
     , Pair(..)
     , Symbol(..)
     , Price(..)
+    , FeeRate(..)
     , BookTicker(..)
     , TradeFee(..)
     , AccountInfo(..)
@@ -44,6 +45,16 @@ instance FromJSON Price where
         _         -> fail "Invalid price string"
     parseJSON v = Price <$> parseJSON v
 
+
+newtype FeeRate = FeeRate { unFeeRate :: Double }
+    deriving (Show, Eq, Ord, Generic)
+
+instance FromJSON FeeRate where
+    parseJSON (String s) = case reads (T.unpack s) of
+        [(d, "")] -> return $ FeeRate d
+        _         -> fail "Invalid fee rate string"
+    parseJSON v = FeeRate <$> parseJSON v
+
 data BookTicker = BookTicker
     { btSymbol   :: Symbol
     , btBidPrice :: Price
@@ -69,7 +80,7 @@ instance FromJSON BookTicker where
 
 data TradeFee = TradeFee
     { tradeFeeSymbol  :: Symbol
-    , takerCommission :: Price
+    , takerFeeRate :: FeeRate
     } deriving (Show, Eq, Generic)
 
 instance FromJSON TradeFee where

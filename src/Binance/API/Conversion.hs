@@ -51,7 +51,7 @@ bookTickerToPairQuote commission bt = PairQuote
 tradeFeeMap :: [TradeFee] -> Map Pair CommissionRate
 tradeFeeMap fees = Map.fromList $ mapMaybe toEntry fees
   where
-    toEntry (TradeFee sym (Price rate)) = do
+    toEntry (TradeFee sym (FeeRate rate)) = do
         pair <- symbolToPair sym
         return (pair, CommissionRate rate)
 
