@@ -20,6 +20,7 @@ common shared-properties
         base       >= 4.14 && < 5,
         aeson      >= 2.0  && < 2.3,
         containers >= 0.6  && < 0.7,
+        mtl        >= 2.2  && < 2.4,
         req        >= 3.13.4 && < 3.15,
         text       >= 1.2  && < 2.2,
         time       >= 1.9  && < 1.13,
