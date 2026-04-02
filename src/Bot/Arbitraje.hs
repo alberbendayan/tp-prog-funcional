@@ -11,15 +11,24 @@ module Bot.Arbitraje
 import Bot.Domain
 import Binance.API.Types (Asset(..), Pair(..), Price(..), MarketOrderQty(..))
 import qualified Data.Map.Strict as Map
-import Data.List (tails, maximumBy)
+import Data.List (tails, maximumBy, permutations)
 import Data.Ord (comparing)
 
 allTriangularPaths :: [Asset] -> [TriangularPath]
 allTriangularPaths assets =
-    concatMap (\(a, b, c) -> mkAllTriangularPaths a b c) (uniqueTriples assets)
+    concatMap pathsForCombination (combinationsOf3 assets)
+  where
+    combinationsOf3 :: [a] -> [(a, a, a)]
+    combinationsOf3 xs =
+        [(x, y, z) | (x:ys) <- tails xs, (y:zs) <- tails ys, z <- zs]
 
-uniqueTriples :: [a] -> [(a, a, a)]
-uniqueTriples xs = [(x, y, z) | (x:ys) <- tails xs, (y:zs) <- tails ys, z <- zs]
+    pathsForCombination :: (Asset, Asset, Asset) -> [TriangularPath]
+    pathsForCombination (a, b, c) =
+        concatMap pathsForOrder (permutations [a, b, c])
+
+    pathsForOrder :: [Asset] -> [TriangularPath]
+    pathsForOrder [x, y, z] = mkAllTriangularPaths x y z
+    pathsForOrder _         = []
 
 data SimulatedStep = SimulatedStep
     { simulatedAmountOut   :: AssetQty        -- cuánto recibimos tras el paso

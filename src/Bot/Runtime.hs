@@ -15,7 +15,6 @@ module Bot.Runtime
 import Bot.Config (Config)
 import Bot.Domain
 import Binance.API.Types (MarketOrderQty(..))
-import Binance.API.Instance (BinanceExchange)
 import Exchange.Interface (Exchange(..))
 import Binance.API.Types (Pair(..), Price(..))
 import Control.Monad.Reader (ReaderT, MonadReader, ask, runReaderT)
@@ -23,9 +22,9 @@ import Control.Monad.State.Strict (StateT, MonadState, runStateT, modify)
 import Control.Monad.Except (ExceptT(..), MonadError, runExceptT)
 import Control.Monad.IO.Class (MonadIO)
 
-data Env = Env
+data Env e = Env
   { envConfig   :: Config
-  , envExchange :: BinanceExchange
+  , envExchange :: e
   }
 
 data BotState = BotState
@@ -43,12 +42,12 @@ data BotError
   | BotConfigError String
   deriving (Show, Eq)
 
-newtype BotM a = BotM
-  { unBotM :: ReaderT Env (StateT BotState (ExceptT BotError IO)) a
+newtype BotM e a = BotM
+  { unBotM :: ReaderT (Env e) (StateT BotState (ExceptT BotError IO)) a
   }
-  deriving newtype (Functor, Applicative, Monad, MonadReader Env, MonadState BotState, MonadError BotError, MonadIO)
+  deriving newtype (Functor, Applicative, Monad, MonadReader (Env e), MonadState BotState, MonadError BotError, MonadIO)
 
-runBotM :: Env -> BotState -> BotM a -> IO (Either BotError (a, BotState))
+runBotM :: Env e -> BotState -> BotM e a -> IO (Either BotError (a, BotState))
 runBotM env st (BotM m) =
   runExceptT $ runStateT (runReaderT m env) st
 
@@ -82,7 +81,7 @@ executeStepsSequentially ex (s:ss) acc = executeOrder ex s >>= onResult
     onResult (Left  err)  = return (reverse acc, [show err])
     onResult (Right fill) = executeStepsSequentially ex ss (fill : acc)
 
-executeRound :: ExecutionPlan -> BotM RoundResult
+executeRound :: Exchange e => ExecutionPlan -> BotM e RoundResult
 executeRound plan = do
     env <- ask
     let steps = executionPlanSteps plan

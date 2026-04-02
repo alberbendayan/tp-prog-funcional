@@ -7,7 +7,7 @@ import Bot.Domain
 import Bot.Arbitraje
 import Bot.Runtime
 import Exchange.Interface
-import Binance.API.Instance
+import Exchange.AppExchange (AppExchange, configureAppExchange)
 import Binance.API.Types (Asset(..))
 import Notification.Telegram
 import Control.Monad (when)
@@ -38,7 +38,7 @@ printRoundResult rr = do
 
 -- | Ejecuta la decisión del bot.
 -- NoTrade no produce ningún efecto. DoTrade construye, valida y ejecuta el plan.
-executeDecision :: Config -> BinanceExchange -> MarketSnapshot -> Decision -> IO ()
+executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> IO ()
 executeDecision _      _        _        NoTrade       = return ()
 executeDecision config exchange snapshot (DoTrade opp) =
     case buildValidPlan snapshot opp of
@@ -52,7 +52,7 @@ executeDecision config exchange snapshot (DoTrade opp) =
                 result
 
 -- | Orquesta un ciclo completo: detección, decisión, ejecución y notificación.
-handleSnapshot :: Config -> BinanceExchange -> MarketSnapshot -> IO ()
+handleSnapshot :: Config -> AppExchange -> MarketSnapshot -> IO ()
 handleSnapshot config exchange snapshot = do
     let paths    = allTriangularPaths tradingAssets
         amountIn = AssetQty USDT (cfgMaxTradeUSDT config)
@@ -66,15 +66,8 @@ handleSnapshot config exchange snapshot = do
                 (\err -> putStrLn $ "Error enviando Telegram: " ++ show err)
                 (\_ -> putStrLn "Notificación de Telegram enviada exitosamente")
 
-main :: IO ()
-main = do
-    config <- loadConfig
-    let exchange = BinanceExchange
-            { binanceBaseUrl           = cfgBaseUrl config
-            , binanceDefaultCommission = CommissionRate (cfgCommissionRate config)
-            , binanceApiKey            = cfgApiKey config
-            , binanceApiSecret         = cfgApiSecret config
-            }
+runWithExchange :: Config -> AppExchange -> IO ()
+runWithExchange config exchange = do
     checkConnectivity exchange >>=
         either
             (\err -> putStrLn $ "Error de conectividad: " ++ show err)
@@ -83,3 +76,9 @@ main = do
         either
             (\err -> putStrLn $ "Error obteniendo mercado: " ++ show err)
             (handleSnapshot config exchange)
+
+main :: IO ()
+main = do
+    config <- loadConfig
+    exchange <- configureAppExchange config
+    runWithExchange config exchange

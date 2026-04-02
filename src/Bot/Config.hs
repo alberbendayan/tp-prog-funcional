@@ -1,12 +1,27 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Bot.Config
-    ( Config(..)
+    ( ExchangeKind(..)
+    , Config(..)
     , loadConfig
     ) where
 
+import Data.Char (toLower)
 import System.Environment (lookupEnv)
 import Configuration.Dotenv (loadFile, defaultConfig)
+
+-- | Proveedor de exchange ('BOT_EXCHANGE' en .env / entorno).
+data ExchangeKind
+    = ExchangeKindBinance
+    | ExchangeKindFake
+    deriving (Show, Eq)
+
+readExchangeKind :: String -> ExchangeKind
+readExchangeKind s =
+    case map toLower s of
+        "fake"    -> ExchangeKindFake
+        "binance" -> ExchangeKindBinance
+        _         -> ExchangeKindBinance
 
 data Config = Config
     { cfgApiKey          :: String
@@ -15,6 +30,7 @@ data Config = Config
     , cfgMinProfit       :: Double
     , cfgMaxTradeUSDT    :: Double
     , cfgCommissionRate  :: Double
+    , cfgExchangeKind    :: ExchangeKind
     , cfgTelegramToken   :: String
     , cfgTelegramChatId  :: String
     , cfgTelegramEnabled :: Bool
@@ -34,6 +50,7 @@ loadConfig = do
     telegramToken <- getEnvOrDefault "TELEGRAM_BOT_TOKEN" "" id
     telegramChatId <- getEnvOrDefault "TELEGRAM_CHAT_ID" "" id
     telegramEnabled <- getEnvOrDefault "TELEGRAM_ENABLED" True readBool
+    exchangeRaw     <- getEnvOrDefault "BOT_EXCHANGE" "binance" id
     
     return Config
         { cfgApiKey = apiKey
@@ -42,6 +59,7 @@ loadConfig = do
         , cfgMinProfit = minProfit
         , cfgMaxTradeUSDT   = maxTradeUSDT
         , cfgCommissionRate = commissionRate
+        , cfgExchangeKind   = readExchangeKind exchangeRaw
         , cfgTelegramToken = telegramToken
         , cfgTelegramChatId = telegramChatId
         , cfgTelegramEnabled = telegramEnabled

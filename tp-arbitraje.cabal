@@ -39,7 +39,10 @@ library
         Binance.API.Endpoints
         Binance.API.Conversion
         Binance.API.Instance
+        FakeExchange.Instance
+        FakeExchange.Control
         Exchange.Interface
+        Exchange.AppExchange
         Bot.Config
         Bot.Domain
         Bot.Arbitraje
