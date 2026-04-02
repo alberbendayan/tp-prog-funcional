@@ -1,7 +1,13 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Bot.Domain
-  ( MarketSnapshot(..)
+  ( -- * Mercado (compartido entre exchanges)
+    Asset(..)
+  , Pair(..)
+  , Price(..)
+  , MarketOrderQty(..)
+  , MarketSnapshot(..)
   , PairQuote(..)
   , CommissionRate(..)
   , AssetQty(..)
@@ -27,11 +33,42 @@ module Bot.Domain
   , roundPnlAmount
   ) where
 
+import Data.Aeson (FromJSON(..), Value(..))
 import Data.Maybe (fromJust)
 import Data.Map.Strict (Map)
+import qualified Data.Text as T
 import Data.Time.Clock (UTCTime)
 import GHC.Generics (Generic)
-import Binance.API.Types (Pair(..), Asset(..), Price(..), MarketOrderQty(..))
+
+-- | Activo negociable (mismo dominio para cualquier exchange).
+data Asset = BTC | ETH | USDT | BNB
+  deriving (Show, Eq, Ord)
+
+instance FromJSON Asset where
+  parseJSON (String "BTC")  = return BTC
+  parseJSON (String "ETH")  = return ETH
+  parseJSON (String "USDT") = return USDT
+  parseJSON (String "BNB")  = return BNB
+  parseJSON (String s)      = fail $ "Asset desconocido: " ++ T.unpack s
+  parseJSON _               = fail "Asset debe ser un string"
+
+-- | Par base/cotización (ej. BTC respecto de USDT).
+data Pair = Pair { base :: Asset, quote :: Asset }
+  deriving (Show, Eq, Ord)
+
+newtype Price = Price { unPrice :: Double }
+  deriving (Show, Eq, Ord, Generic)
+
+instance FromJSON Price where
+  parseJSON (String s) = case reads (T.unpack s) of
+    [(d, "")] -> return $ Price d
+    _         -> fail "Invalid price string"
+  parseJSON v = Price <$> parseJSON v
+
+data MarketOrderQty
+    = QtyBase  Double
+    | QtyQuote Double
+    deriving (Show, Eq)
 
 newtype CommissionRate = CommissionRate { unCommissionRate :: Double }
   deriving (Show, Eq, Ord, Generic)

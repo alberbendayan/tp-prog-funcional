@@ -9,7 +9,6 @@ module Bot.Arbitraje
     ) where
 
 import Bot.Domain
-import Binance.API.Types (Asset(..), Pair(..), Price(..), MarketOrderQty(..))
 import qualified Data.Map.Strict as Map
 import Data.List (tails, maximumBy, permutations)
 import Data.Ord (comparing)

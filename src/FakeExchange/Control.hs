@@ -11,8 +11,7 @@ module FakeExchange.Control
   ) where
 
 import FakeExchange.Instance
-import Bot.Domain (PairQuote(..), CommissionRate(..))
-import Binance.API.Types (Asset(..), Pair(..), Price(..))
+import Bot.Domain (Asset(..), Pair(..), Price(..), PairQuote(..), CommissionRate(..))
 import Data.IORef (newIORef, readIORef, writeIORef, modifyIORef')
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map

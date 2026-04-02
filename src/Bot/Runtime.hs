@@ -14,9 +14,7 @@ module Bot.Runtime
 
 import Bot.Config (Config)
 import Bot.Domain
-import Binance.API.Types (MarketOrderQty(..))
 import Exchange.Interface (Exchange(..))
-import Binance.API.Types (Pair(..), Price(..))
 import Control.Monad.Reader (ReaderT, MonadReader, ask, runReaderT)
 import Control.Monad.State.Strict (StateT, MonadState, runStateT, modify)
 import Control.Monad.Except (ExceptT(..), MonadError, runExceptT)

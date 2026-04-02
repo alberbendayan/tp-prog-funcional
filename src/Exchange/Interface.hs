@@ -1,7 +1,6 @@
 module Exchange.Interface where
 
-import Bot.Domain (MarketSnapshot, OrderStep, Fill)
-import Binance.API.Types (Asset)
+import Bot.Domain (Asset, MarketSnapshot, OrderStep, Fill)
 import Control.Monad.IO.Class (MonadIO)
 
 data ExchangeError

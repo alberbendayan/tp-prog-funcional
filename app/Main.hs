@@ -8,7 +8,6 @@ import Bot.Arbitraje
 import Bot.Runtime
 import Exchange.Interface
 import Exchange.AppExchange (AppExchange, configureAppExchange)
-import Binance.API.Types (Asset(..))
 import Notification.Telegram
 import Control.Monad (when)
 
