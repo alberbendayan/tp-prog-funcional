@@ -43,6 +43,7 @@ library
         Bot.Config
         Bot.Domain
         Bot.Arbitraje
+        Bot.Runtime
         Notification.Types
         Notification.Telegram
 

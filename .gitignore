@@ -41,3 +41,6 @@ logs/
 # Build artifacts
 dist-newstyle/
 result
+
+# Informe
+informe/

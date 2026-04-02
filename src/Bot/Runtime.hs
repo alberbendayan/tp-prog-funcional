@@ -9,15 +9,19 @@ module Bot.Runtime
   , BotState(..)
   , BotError(..)
   , initialBotState
+  , executeRound
   ) where
 
 import Bot.Config (Config)
-import Bot.Domain (RoundResult)
+import Bot.Domain
+import Binance.API.Types (MarketOrderQty(..))
 import Binance.API.Instance (BinanceExchange)
+import Exchange.Interface (Exchange(..))
+import Binance.API.Types (Pair(..), Price(..))
 import Control.Monad.Reader (ReaderT, MonadReader, ask, runReaderT)
-import Control.Monad.State.Strict (StateT, MonadState, evalStateT)
+import Control.Monad.State.Strict (StateT, MonadState, runStateT, modify)
 import Control.Monad.Except (ExceptT(..), MonadError, runExceptT)
-import Control.Monad.IO.Class (MonadIO, liftIO)
+import Control.Monad.IO.Class (MonadIO)
 
 data Env = Env
   { envConfig   :: Config
@@ -46,6 +50,45 @@ newtype BotM a = BotM
 
 runBotM :: Env -> BotState -> BotM a -> IO (Either BotError (a, BotState))
 runBotM env st (BotM m) =
-  runExceptT $
-    (\x -> (x,)) <$> evalStateT (runReaderT m env) st
+  runExceptT $ runStateT (runReaderT m env) st
+
+extractStepInputAmount :: OrderStep -> AssetQty
+extractStepInputAmount (OrderStep pair _ (QtyBase  qty)) = AssetQty (base  pair) qty
+extractStepInputAmount (OrderStep pair _ (QtyQuote qty)) = AssetQty (quote pair) qty
+
+buildRoundStatusFromErrors :: [String] -> RoundStatus
+buildRoundStatusFromErrors []   = RoundSuccess
+buildRoundStatusFromErrors errs = RoundPartial errs
+
+calculateFinalOutputAmount :: AssetQty -> [Fill] -> AssetQty
+calculateFinalOutputAmount amtIn [] = amtIn
+calculateFinalOutputAmount _     fills =
+    let lastFill = last fills
+    in AssetQty (quote (fillPair lastFill))
+                (fillAmountBase lastFill * unPrice (fillPrice lastFill))
+
+buildRoundResult :: AssetQty -> [Fill] -> [String] -> RoundResult
+buildRoundResult amtIn fills errs = RoundResult
+    { roundFills     = fills
+    , roundAmountIn  = amtIn
+    , roundAmountOut = calculateFinalOutputAmount amtIn fills
+    , roundStatus    = buildRoundStatusFromErrors errs
+    }
+
+executeStepsSequentially :: (MonadIO m, Exchange e) => e -> [OrderStep] -> [Fill] -> m ([Fill], [String])
+executeStepsSequentially _  []     acc = return (reverse acc, [])
+executeStepsSequentially ex (s:ss) acc = executeOrder ex s >>= onResult
+  where
+    onResult (Left  err)  = return (reverse acc, [show err])
+    onResult (Right fill) = executeStepsSequentially ex ss (fill : acc)
+
+executeRound :: ExecutionPlan -> BotM RoundResult
+executeRound plan = do
+    env <- ask
+    let steps = executionPlanSteps plan
+        amtIn = extractStepInputAmount (head steps)
+    (fills, errs) <- executeStepsSequentially (envExchange env) steps []
+    let result = buildRoundResult amtIn fills errs
+    modify $ \s -> s { bsRounds = bsRounds s ++ [result] }
+    return result
 

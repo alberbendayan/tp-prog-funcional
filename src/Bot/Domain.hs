@@ -5,7 +5,6 @@ module Bot.Domain
   , PairQuote(..)
   , CommissionRate(..)
   , AssetQty(..)
-  , BaseQty(..)
   , TriangularPath
   , arbPair1
   , arbPair2
@@ -32,7 +31,7 @@ import Data.Maybe (fromJust)
 import Data.Map.Strict (Map)
 import Data.Time.Clock (UTCTime)
 import GHC.Generics (Generic)
-import Binance.API.Types (Pair(..), Asset(..), Price(..))
+import Binance.API.Types (Pair(..), Asset(..), Price(..), MarketOrderQty(..))
 
 newtype CommissionRate = CommissionRate { unCommissionRate :: Double }
   deriving (Show, Eq, Ord, Generic)
@@ -43,10 +42,6 @@ data AssetQty = AssetQty
   { qtyAsset  :: Asset
   , qtyAmount :: Double
   } deriving (Show, Eq, Ord, Generic)
-
--- | Quantity expressed in the base asset of a Pair (used for market SELL steps).
-newtype BaseQty = BaseQty { unBaseQty :: Double }
-  deriving (Show, Eq, Ord, Generic)
 
 data PairQuote = PairQuote
   { bidPrice         :: Price
@@ -102,27 +97,23 @@ data OrderSide = Buy | Sell
   deriving (Show, Eq, Ord, Generic)
 
 data OrderStep = OrderStep
-  { stepPair       :: Pair
-  , stepSide       :: OrderSide
-  , stepBaseQty    :: BaseQty
+  { stepPair :: Pair
+  , stepSide :: OrderSide
+  , stepQty  :: MarketOrderQty
   } deriving (Show, Eq, Generic)
 
 data ExecutionPlan = ExecutionPlan
-  { planPath    :: TriangularPath
-  , planStep1BaseQty :: BaseQty
-  , planStep2BaseQty :: BaseQty
-  , planStep3BaseQty :: BaseQty
+  { planPath  :: TriangularPath
+  , planStep1 :: OrderStep
+  , planStep2 :: OrderStep
+  , planStep3 :: OrderStep
   } deriving (Show, Eq, Generic)
 
-mkExecutionPlan :: TriangularPath -> BaseQty -> BaseQty -> BaseQty -> ExecutionPlan
-mkExecutionPlan path q1 q2 q3 = ExecutionPlan path q1 q2 q3
+mkExecutionPlan :: TriangularPath -> OrderStep -> OrderStep -> OrderStep -> ExecutionPlan
+mkExecutionPlan = ExecutionPlan
 
 executionPlanSteps :: ExecutionPlan -> [OrderStep]
-executionPlanSteps ep =
-  [ OrderStep (arbPair1 $ planPath ep) Sell (planStep1BaseQty ep)
-  , OrderStep (arbPair2 $ planPath ep) Sell (planStep2BaseQty ep)
-  , OrderStep (arbPair3 $ planPath ep) Sell (planStep3BaseQty ep)
-  ]
+executionPlanSteps ep = [planStep1 ep, planStep2 ep, planStep3 ep]
 
 data Fill = Fill
   { fillPair       :: Pair
@@ -130,6 +121,7 @@ data Fill = Fill
   , fillAmountBase :: Double
   , fillPrice      :: Price
   , fillFee        :: Double
+  , fillFeeAsset   :: Asset
   , fillTime       :: UTCTime
   } deriving (Show, Eq, Generic)
 

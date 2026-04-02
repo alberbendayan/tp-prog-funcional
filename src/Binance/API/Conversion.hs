@@ -6,6 +6,7 @@ module Binance.API.Conversion
     , TickerResult(..)
     , fetchBookTickersForPairs
     , generateAllPairs
+    , orderResponseToFill
     ) where
 
 import Binance.API.Types
@@ -17,6 +18,7 @@ import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
 import Data.List (isInfixOf)
+import Data.Time.Clock (UTCTime)
 
 parseAsset :: Text -> Maybe Asset
 parseAsset "BTC"  = Just BTC
@@ -100,3 +102,23 @@ fetchBookTickersForPairs baseUrl pairs = do
     let symbols = map pairToSymbol pairs
     results <- mapM (fetchSingleTicker baseUrl) symbols
     return results
+
+orderResponseToFill :: OrderResponse -> OrderSide -> Pair -> UTCTime -> Either String Fill
+orderResponseToFill resp side pair time
+    | null (orFills resp) = Left "orderResponseToFill: no fills en la respuesta"
+    | otherwise =
+        let fills      = orFills resp
+            totalQty   = sum $ map ofQty fills
+            weightedP  = sum $ map (\f -> ofQty f * unPrice (ofPrice f)) fills
+            avgPrice   = if totalQty > 0 then weightedP / totalQty else 0
+            totalFee   = sum $ map ofCommission fills
+            feeAsset   = ofCommissionAsset (head fills)
+        in Right $ Fill
+            { fillPair       = pair
+            , fillSide       = side
+            , fillAmountBase = orExecutedQty resp
+            , fillPrice      = Price avgPrice
+            , fillFee        = totalFee
+            , fillFeeAsset   = feeAsset
+            , fillTime       = time
+            }

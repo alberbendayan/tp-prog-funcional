@@ -7,6 +7,7 @@ module Binance.API.Client
     , getBookTicker
     , getTradeFees
     , getAccountInfo
+    , placeMarketOrder
     , BinanceError(..)
     ) where
 
@@ -64,6 +65,57 @@ getTradeFees baseUrl apiKey apiSecret = do
         sig      = Auth.signQueryString apiSecret queryStr
         params   = [("timestamp", T.pack ts), ("signature", T.pack sig)]
     makeAuthJsonGetRequest baseUrl tradeFeeEndpoint params apiKey
+
+-- | Coloca una orden de mercado en Binance.
+-- La cantidad se especifica con MarketOrderQty:
+--   QtyBase  q → envía `quantity=q`       (típico para SELL del base).
+--   QtyQuote q → envía `quoteOrderQty=q`  (típico para BUY: cuánto quote gastamos).
+placeMarketOrder
+    :: String          -- baseUrl
+    -> String          -- apiKey
+    -> String          -- apiSecret
+    -> Text            -- symbol (ej. "BTCUSDT")
+    -> Text            -- side: "BUY" | "SELL"
+    -> MarketOrderQty  -- cantidad y cómo especificarla
+    -> IO (Either BinanceError OrderResponse)
+placeMarketOrder baseUrl apiKey apiSecret symbol side marketQty = do
+    posixTime <- getPOSIXTime
+    let ts           = show (floor (posixTime * 1000) :: Integer)
+        (qtyKey, qtyVal) = case marketQty of
+            QtyBase  q -> ("quantity",       show q)
+            QtyQuote q -> ("quoteOrderQty",  show q)
+        queryStr = "symbol="   ++ T.unpack symbol
+                ++ "&side="    ++ T.unpack side
+                ++ "&type=MARKET"
+                ++ "&" ++ qtyKey ++ "=" ++ qtyVal
+                ++ "&timestamp=" ++ ts
+        sig    = Auth.signQueryString apiSecret queryStr
+        params = [ ("symbol",         symbol)
+                 , ("side",           side)
+                 , ("type",           "MARKET")
+                 , (T.pack qtyKey,    T.pack qtyVal)
+                 , ("timestamp",      T.pack ts)
+                 , ("signature",      T.pack sig)
+                 ]
+    makeAuthJsonPostRequest baseUrl orderEndpoint params apiKey
+
+makeAuthJsonPostRequest :: FromJSON a
+                        => String -> Text -> [(Text, Text)] -> String
+                        -> IO (Either BinanceError a)
+makeAuthJsonPostRequest baseUrl endpoint params apiKey =
+    fmap responseBody <$> makeAuthPostRequest baseUrl endpoint params apiKey jsonResponse
+
+makeAuthPostRequest :: HttpResponse response
+                    => String -> Text -> [(Text, Text)] -> String -> Proxy response
+                    -> IO (Either BinanceError response)
+makeAuthPostRequest baseUrl endpoint params apiKey responseType = do
+    result <- try $ runReq defaultHttpConfig $ do
+        let (url, reqParams) = mkRequest baseUrl endpoint params
+            authHeader       = header "X-MBX-APIKEY" (BSC.pack apiKey)
+        req POST url NoReqBody responseType (reqParams <> authHeader)
+    case result of
+        Left (e :: SomeException) -> return $ Left $ NetworkError (show e)
+        Right resp                -> return $ Right resp
 
 makeAuthJsonGetRequest :: FromJSON a
                        => String -> Text -> [(Text, Text)] -> String

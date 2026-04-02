@@ -5,6 +5,7 @@ module Binance.API.Endpoints
     , bookTickerEndpoint
     , tradeFeeEndpoint
     , accountEndpoint
+    , orderEndpoint
     ) where
 
 import Data.Text (Text)
@@ -20,3 +21,6 @@ tradeFeeEndpoint = "/sapi/v1/asset/tradeFee"
 
 accountEndpoint :: Text
 accountEndpoint = "/api/v3/account"
+
+orderEndpoint :: Text
+orderEndpoint = "/api/v3/order"

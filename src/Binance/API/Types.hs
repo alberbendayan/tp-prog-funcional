@@ -10,6 +10,9 @@ module Binance.API.Types
     , BookTicker(..)
     , TradeFee(..)
     , AccountInfo(..)
+    , MarketOrderQty(..)
+    , OrderFill(..)
+    , OrderResponse(..)
     , pairToSymbol
     ) where
 
@@ -20,6 +23,14 @@ import GHC.Generics
 
 data Asset = BTC | ETH | USDT | BNB
   deriving (Show, Eq, Ord)
+
+instance FromJSON Asset where
+    parseJSON (String "BTC")  = return BTC
+    parseJSON (String "ETH")  = return ETH
+    parseJSON (String "USDT") = return USDT
+    parseJSON (String "BNB")  = return BNB
+    parseJSON (String s)      = fail $ "Asset desconocido: " ++ T.unpack s
+    parseJSON _               = fail "Asset debe ser un string"
 
 data Pair = Pair { base :: Asset, quote :: Asset }
   deriving (Show, Eq, Ord)
@@ -97,3 +108,50 @@ data AccountInfo = AccountInfo
 instance FromJSON AccountInfo where
     parseJSON = withObject "AccountInfo" $ \o ->
         AccountInfo <$> o .: "takerCommission"
+
+data MarketOrderQty
+    = QtyBase  Double
+    | QtyQuote Double
+    deriving (Show, Eq)
+
+data OrderFill = OrderFill
+    { ofPrice           :: Price
+    , ofQty             :: Double
+    , ofCommission      :: Double
+    , ofCommissionAsset :: Asset   -- el fill puede cobrar comisión en BNB u otro asset
+    } deriving (Show, Eq, Generic)
+
+instance FromJSON OrderFill where
+    parseJSON = withObject "OrderFill" $ \o -> do
+        price           <- o .: "price"
+        qtyStr          <- o .: "qty"
+        commStr         <- o .: "commission"
+        commissionAsset <- o .: "commissionAsset"
+        qty <- case reads (T.unpack qtyStr) of
+            [(d, "")] -> return d
+            _         -> fail "Invalid qty string"
+        comm <- case reads (T.unpack commStr) of
+            [(d, "")] -> return d
+            _         -> fail "Invalid commission string"
+        return $ OrderFill price qty comm commissionAsset
+
+data OrderResponse = OrderResponse
+    { orStatus              :: Text
+    , orExecutedQty         :: Double
+    , orCummulativeQuoteQty :: Double
+    , orFills               :: [OrderFill]
+    } deriving (Show, Eq, Generic)
+
+instance FromJSON OrderResponse where
+    parseJSON = withObject "OrderResponse" $ \o -> do
+        status  <- o .: "status"
+        exqStr  <- o .: "executedQty"
+        cqqStr  <- o .: "cummulativeQuoteQty"
+        fills   <- o .: "fills"
+        exq <- case reads (T.unpack exqStr) of
+            [(d, "")] -> return d
+            _         -> fail "Invalid executedQty string"
+        cqq <- case reads (T.unpack cqqStr) of
+            [(d, "")] -> return d
+            _         -> fail "Invalid cummulativeQuoteQty string"
+        return $ OrderResponse status exq cqq fills
