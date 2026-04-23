@@ -37,17 +37,24 @@ printRoundResult rr = do
 
 -- | Ejecuta la decisión del bot.
 -- NoTrade no produce ningún efecto. DoTrade construye, valida y ejecuta el plan.
-executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> IO ()
-executeDecision _      _        _        NoTrade       = return ()
+executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> IO (Maybe String)
+executeDecision _      _        _        NoTrade       = return Nothing
 executeDecision config exchange snapshot (DoTrade opp) =
     case buildValidPlan snapshot opp of
-        Left msg        -> putStrLn msg
+        Left msg        -> do
+            putStrLn msg
+            return $ Just (formatExecutionError msg)
         Right validPlan -> do
             let env = Env { envConfig = config, envExchange = exchange }
             result <- runBotM env initialBotState (executeRound validPlan)
             either
-                (\err     -> putStrLn $ "Error ejecutando ronda: " ++ show err)
-                (\(rr, _) -> printRoundResult rr)
+                (\err -> do
+                    let msg = "Error ejecutando ronda: " ++ show err
+                    putStrLn msg
+                    return $ Just (formatExecutionError (show err)))
+                (\(rr, _) -> do
+                    printRoundResult rr
+                    return $ Just (formatRoundResult rr))
                 result
 
 -- | Orquesta un ciclo completo: detección, decisión, ejecución y notificación.
@@ -58,12 +65,20 @@ handleSnapshot config exchange snapshot = do
         opps     = detectOpportunities paths snapshot amountIn
         decision = makeDecision (cfgMinProfit config) opps
     putStrLn $ "\n" ++ formatDecision decision
-    executeDecision config exchange snapshot decision
+    postTradeReport <- executeDecision config exchange snapshot decision
     when (cfgTelegramEnabled config) $
-        sendTelegramMessage config (formatDecision decision) >>=
-            either
-                (\err -> putStrLn $ "Error enviando Telegram: " ++ show err)
-                (\_ -> putStrLn "Notificación de Telegram enviada exitosamente")
+        do
+            sendTelegramMessage config (formatDecision decision) >>=
+                either
+                    (\err -> putStrLn $ "Error enviando Telegram: " ++ show err)
+                    (\_ -> putStrLn "Notificación de decisión enviada a Telegram")
+            case postTradeReport of
+                Nothing -> return ()
+                Just report ->
+                    sendTelegramMessage config report >>=
+                        either
+                            (\err -> putStrLn $ "Error enviando Telegram post-trade: " ++ show err)
+                            (\_ -> putStrLn "Notificación post-trade enviada a Telegram")
 
 runWithExchange :: Config -> AppExchange -> IO ()
 runWithExchange config exchange = do

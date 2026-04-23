@@ -6,6 +6,8 @@
 module Notification.Telegram
     ( sendTelegramMessage
     , formatDecision
+    , formatRoundResult
+    , formatExecutionError
     ) where
 
 import Notification.Types
@@ -16,6 +18,8 @@ import qualified Data.Text as T
 import Data.Aeson
 import GHC.Generics
 import Network.HTTP.Req
+import Data.List (intercalate)
+import Numeric (showFFloat)
 
 data TelegramRequest = TelegramRequest
     { chat_id :: String
@@ -78,4 +82,58 @@ formatDecision (DoTrade opp) =
         , "Entrada: " ++ show (qtyAmount (arbAmountIn opp)) ++ " " ++ show (qtyAsset (arbAmountIn opp))
         , "Salida esperada: " ++ show (qtyAmount (arbAmountOut opp)) ++ " " ++ show (qtyAsset (arbAmountOut opp))
         ]
+
+formatRoundResult :: RoundResult -> String
+formatRoundResult rr =
+    let statusLine = "Estado: " ++ show (roundStatus rr)
+        pnlLine    = "PnL: " ++ either ("error - " ++) showPnl (roundPnl rr)
+        fillsLine  = case roundFills rr of
+            []    -> "Fills: sin ejecuciones"
+            fills -> "Fills (" ++ show (length fills) ++ "):\n" ++ intercalate "\n" (zipWith formatFillLine [1 :: Int ..] fills)
+    in unlines
+        [ "📈 Resultado post-trade"
+        , statusLine
+        , pnlLine
+        , fillsLine
+        ]
+
+formatExecutionError :: String -> String
+formatExecutionError err = unlines
+    [ "📉 Resultado post-trade"
+    , "Estado: RoundFailed"
+    , "Error: " ++ err
+    ]
+
+showPnl :: AssetQty -> String
+showPnl pnl = signedAmountByAsset (qtyAsset pnl) (qtyAmount pnl) ++ " " ++ show (qtyAsset pnl)
+
+formatFillLine :: Int -> Fill -> String
+formatFillLine idx fill =
+    show idx ++ ". "
+        ++ show (fillSide fill) ++ " "
+        ++ fmtAmount (base (fillPair fill)) (fillAmountBase fill) ++ " "
+        ++ show (base (fillPair fill)) ++ " | precio: "
+        ++ fmtPrice (quote (fillPair fill)) (unPrice (fillPrice fill))
+        ++ " " ++ show (quote (fillPair fill))
+        ++ " (fee: " ++ fmtAmount (fillFeeAsset fill) (fillFee fill) ++ " " ++ show (fillFeeAsset fill) ++ ")"
+
+fmtPrice :: Asset -> Double -> String
+fmtPrice asset p = fixed (decimalsForAsset asset) p
+
+fmtAmount :: Asset -> Double -> String
+fmtAmount asset a = fixed (decimalsForAsset asset) a
+
+signedAmountByAsset :: Asset -> Double -> String
+signedAmountByAsset asset a
+    | a > 0     = "+" ++ fixed decimals a
+    | otherwise = fixed decimals a
+  where
+    decimals = decimalsForAsset asset
+
+decimalsForAsset :: Asset -> Int
+decimalsForAsset USDT = 2
+decimalsForAsset _    = 8
+
+fixed :: Int -> Double -> String
+fixed decimals x = showFFloat (Just decimals) x ""
 
