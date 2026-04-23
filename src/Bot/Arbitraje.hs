@@ -6,6 +6,7 @@ module Bot.Arbitraje
     , opportunityToExecutionPlan
     , PlanError(..)
     , validateAndQuantizePlan
+    , validatePlanLiquidity
     ) where
 
 import Bot.Domain
@@ -44,7 +45,8 @@ simulateOneStep
 simulateOneStep quotes logicalPair (AssetQty asset qty)
 
     | asset == base logicalPair
-    , Just q <- Map.lookup logicalPair quotes =
+    , Just q <- Map.lookup logicalPair quotes
+    , qty <= bidQty q =
         let amountOut = unPrice (bidPrice q) * qty * (1 - unCommissionRate (pairCommission q))
         in Just SimulatedStep
             { simulatedAmountOut   = AssetQty (quote logicalPair) amountOut
@@ -55,7 +57,8 @@ simulateOneStep quotes logicalPair (AssetQty asset qty)
 
     | asset == quote logicalPair
     , let binancePair = Pair (quote logicalPair) (base logicalPair)
-    , Just q <- Map.lookup binancePair quotes =
+    , Just q <- Map.lookup binancePair quotes
+    , qty / unPrice (askPrice q) <= askQty q =
         let amountOut = qty / unPrice (askPrice q) * (1 - unCommissionRate (pairCommission q))
         in Just SimulatedStep
             { simulatedAmountOut   = AssetQty (base logicalPair) amountOut
@@ -131,3 +134,28 @@ validateAndQuantizePlan plan = do
     s2 <- validateStep 2 (planStep2 plan)
     s3 <- validateStep 3 (planStep3 plan)
     return $ mkExecutionPlan (planPath plan) s1 s2 s3
+
+validatePlanLiquidity :: MarketSnapshot -> ExecutionPlan -> Either String ()
+validatePlanLiquidity snapshot plan =
+    mapM_ checkStep (zip [1 :: Int ..] (executionPlanSteps plan))
+  where
+    quotes = snapshotQuotes snapshot
+
+    checkStep :: (Int, OrderStep) -> Either String ()
+    checkStep (n, step) =
+        case Map.lookup (stepPair step) quotes of
+            Nothing -> Left $ "paso " ++ show n ++ ": par no disponible en snapshot"
+            Just q  -> checkLiquidity n q (stepSide step) (stepQty step)
+
+    checkLiquidity :: Int -> PairQuote -> OrderSide -> MarketOrderQty -> Either String ()
+    checkLiquidity n q Sell (QtyBase qty)
+        | qty <= bidQty q = Right ()
+        | otherwise       = Left $ "paso " ++ show n ++ ": liquidez insuficiente (sell "
+                                ++ show qty ++ " > bidQty " ++ show (bidQty q) ++ ")"
+    checkLiquidity n q Buy (QtyQuote qty)
+        | qty / unPrice (askPrice q) <= askQty q = Right ()
+        | otherwise = Left $ "paso " ++ show n ++ ": liquidez insuficiente (buy, baseNeeded "
+                          ++ show (qty / unPrice (askPrice q))
+                          ++ " > askQty " ++ show (askQty q) ++ ")"
+    checkLiquidity n _ _ _ =
+        Left $ "paso " ++ show n ++ ": combinacion inesperada de side/qty"

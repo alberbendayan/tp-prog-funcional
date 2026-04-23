@@ -103,6 +103,8 @@ data PairQuote = PairQuote
   { bidPrice         :: Price
   , askPrice         :: Price
   , pairCommission   :: CommissionRate
+  , bidQty           :: Double
+  , askQty           :: Double
   } deriving (Show, Eq, Ord, Generic)
 
 data MarketSnapshot = MarketSnapshot

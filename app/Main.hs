@@ -27,7 +27,9 @@ buildValidPlan snapshot opp =
         Nothing   -> Left "No se pudo construir el plan de ejecución"
         Just plan -> case validateAndQuantizePlan plan of
             Left planErr -> Left $ "Plan inválido tras cuantización: " ++ show planErr
-            Right valid  -> Right valid
+            Right valid  -> case validatePlanLiquidity snapshot valid of
+                Left liqErr -> Left $ "Liquidez insuficiente para ejecutar: " ++ liqErr
+                Right ()    -> Right valid
 
 -- | Formatea el PnL de una ronda para mostrarlo por pantalla.
 formatPnl :: Either String AssetQty -> String

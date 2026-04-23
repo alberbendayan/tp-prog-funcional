@@ -21,7 +21,7 @@ demoFee = CommissionRate 0.001
 
 -- | Bid/ask con la comisión fija de la demo ('demoFee').
 mkDemoPairQuote :: Double -> Double -> PairQuote
-mkDemoPairQuote bid ask = PairQuote (Price bid) (Price ask) demoFee
+mkDemoPairQuote bid ask = PairQuote (Price bid) (Price ask) demoFee 1000.0 1000.0
 
 
 defaultDemoQuotes :: Map Pair PairQuote

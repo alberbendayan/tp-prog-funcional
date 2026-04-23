@@ -48,6 +48,8 @@ bookTickerToPairQuote commission bt = PairQuote
     { bidPrice       = btBidPrice bt
     , askPrice       = btAskPrice bt
     , pairCommission = commission
+    , bidQty         = btBidQty bt
+    , askQty         = btAskQty bt
     }
 
 tradeFeeMap :: [TradeFee] -> Map Pair CommissionRate
