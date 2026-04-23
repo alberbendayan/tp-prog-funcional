@@ -8,8 +8,9 @@
 - [x] Enviar también errores de ejecución de órdenes a Telegram (no solo decisión/oportunidad).
 
 ## Estado del bot
-- [ ] Revisar el modelo de estado para incluir balances y órdenes abiertas si se quiere alinear con el texto original.
-- [ ] Definir métricas mínimas en estado (rondas, PnL acumulado, errores por ronda) y exponerlas en reporte/log.
+- [x] Revisar el modelo de estado para incluir balances y órdenes abiertas si se quiere alinear con el texto original.
+- [x] Definir métricas mínimas en estado (rondas, PnL acumulado, errores por ronda) y exponerlas en reporte/log.
+- [ ] Persistir `BotState` entre iteraciones del ciclo principal (no reiniciar en cada ronda).
 
 ## Manejo de errores (ExceptT)
 - [ ] Unificar estrategia de errores: qué va por `ExceptT BotError` y qué queda como `RoundPartial`.
@@ -28,7 +29,7 @@
 - [ ] (Opcional) Si se requiere cumplir literal "orderbooks", integrar endpoint de profundidad y adaptar lógica.
 
 ## Estado consultable y comandos (Opcional)
-- [ ] Agregar snapshot de estado en `BotState` (balances por asset, órdenes abiertas y último `RoundResult`).
+- [x] Agregar snapshot de estado en `BotState` (balances por asset, órdenes abiertas y último `RoundResult`).
 - [ ] Persistir historial acotado en memoria (por ejemplo últimas `N` rondas) para evitar crecimiento sin límite.
 - [ ] Exponer comando de Telegram `/balance` (o equivalente) con balances actuales y variación reciente.
 - [ ] Exponer comando `/status` con estado del bot (activo, último ciclo, último error, uptime).

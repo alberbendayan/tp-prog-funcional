@@ -10,6 +10,9 @@ import Exchange.Interface
 import Exchange.AppExchange (AppExchange, configureAppExchange)
 import Notification.Telegram
 import Control.Monad (when)
+import Data.List (intercalate)
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as M
 
 tradingAssets :: [Asset]
 tradingAssets = [BTC, ETH, BNB, USDT]
@@ -35,6 +38,30 @@ printRoundResult rr = do
     putStrLn $ "Status: " ++ show (roundStatus rr)
     putStrLn $ "PnL:    " ++ formatPnl (roundPnl rr)
 
+formatBotStateSummary :: BotState -> String
+formatBotStateSummary st =
+    unlines
+      [ "Estado del bot"
+      , "- Rondas ejecutadas: " ++ show (bsRoundCount st)
+      , "- Ultima ronda registrada: " ++ show (hasLastRoundResult st)
+      , "- Errores por ronda: " ++ show (bsErrorsPerRound st)
+      , "- PnL acumulado: " ++ formatAssetMap (bsPnlAccumulated st)
+      , "- Balances (delta): " ++ formatAssetMap (bsBalances st)
+      , "- Ordenes abiertas modeladas: " ++ show (length (bsOpenOrders st))
+      ]
+
+formatAssetMap :: Map Asset Double -> String
+formatAssetMap mp
+  | M.null mp  = "sin datos"
+  | otherwise  = intercalate ", " $ map formatEntry (M.toList mp)
+  where
+    formatEntry (asset, amount) = show amount ++ " " ++ show asset
+
+hasLastRoundResult :: BotState -> Bool
+hasLastRoundResult st = case bsLastRoundResult st of
+  Nothing -> False
+  Just _  -> True
+
 -- | Ejecuta la decisión del bot.
 -- NoTrade no produce ningún efecto. DoTrade construye, valida y ejecuta el plan.
 executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> IO (Maybe String)
@@ -52,8 +79,9 @@ executeDecision config exchange snapshot (DoTrade opp) =
                     let msg = "Error ejecutando ronda: " ++ show err
                     putStrLn msg
                     return $ Just (formatExecutionError (show err)))
-                (\(rr, _) -> do
+                (\(rr, st) -> do
                     printRoundResult rr
+                    putStrLn (formatBotStateSummary st)
                     return $ Just (formatRoundResult rr))
                 result
 
