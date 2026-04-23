@@ -26,8 +26,9 @@ common shared-properties
         time       >= 1.9  && < 1.13,
         dotenv     >= 0.11 && < 0.12,
         bytestring >= 0.10 && < 0.13,
-        cryptonite >= 0.30 && < 0.31,
-        memory     >= 0.18 && < 0.19
+        cryptonite   >= 0.30 && < 0.31,
+        memory       >= 0.18 && < 0.19,
+        transformers >= 0.5  && < 0.7
 
 library
     import:           shared-properties
@@ -47,6 +48,7 @@ library
         Bot.Domain
         Bot.Arbitraje
         Bot.Runtime
+        Bot.Persist
         Notification.Types
         Notification.Telegram
 

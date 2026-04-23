@@ -1,4 +1,5 @@
 {-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Bot.Domain
@@ -33,7 +34,8 @@ module Bot.Domain
   , roundPnlAmount
   ) where
 
-import Data.Aeson (FromJSON(..), Value(..))
+import Data.Aeson (FromJSON(..), ToJSON(..), ToJSONKey(..), FromJSONKey(..), Value(..))
+import Data.Aeson.Types (toJSONKeyText, FromJSONKeyFunction(..))
 import Data.Maybe (fromJust)
 import Data.Map.Strict (Map)
 import qualified Data.Text as T
@@ -51,6 +53,23 @@ instance FromJSON Asset where
   parseJSON (String "BNB")  = return BNB
   parseJSON (String s)      = fail $ "Asset desconocido: " ++ T.unpack s
   parseJSON _               = fail "Asset debe ser un string"
+
+instance ToJSON Asset where
+  toJSON BTC  = String "BTC"
+  toJSON ETH  = String "ETH"
+  toJSON USDT = String "USDT"
+  toJSON BNB  = String "BNB"
+
+instance ToJSONKey Asset where
+  toJSONKey = toJSONKeyText (T.pack . show)
+
+instance FromJSONKey Asset where
+  fromJSONKey = FromJSONKeyTextParser $ \case
+    "BTC"  -> pure BTC
+    "ETH"  -> pure ETH
+    "USDT" -> pure USDT
+    "BNB"  -> pure BNB
+    s      -> fail $ "Asset desconocido como clave: " ++ T.unpack s
 
 -- | Par base/cotización (ej. BTC respecto de USDT).
 data Pair = Pair { base :: Asset, quote :: Asset }

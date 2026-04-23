@@ -6,6 +6,7 @@ import Bot.Config
 import Bot.Domain
 import Bot.Arbitraje
 import Bot.Runtime
+import Bot.Persist
 import Exchange.Interface
 import Exchange.AppExchange (AppExchange, configureAppExchange)
 import Notification.Telegram
@@ -64,59 +65,60 @@ hasLastRoundResult st = case bsLastRoundResult st of
   Just _  -> True
 
 -- | Ejecuta la decisión del bot.
--- NoTrade no produce ningún efecto. DoTrade construye, valida y ejecuta el plan.
-executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> IO (Maybe String)
-executeDecision _      _        _        NoTrade       = return Nothing
-executeDecision config exchange snapshot (DoTrade opp) =
+-- Toma el estado actual y devuelve el reporte y el nuevo estado.
+executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> BotState -> IO (Maybe String, BotState)
+executeDecision _      _        _        NoTrade       st = return (Nothing, st)
+executeDecision config exchange snapshot (DoTrade opp) st =
     case buildValidPlan snapshot opp of
         Left msg        -> do
             putStrLn msg
-            return $ Just (formatExecutionError msg)
+            return (Just (formatExecutionError msg), st)
         Right validPlan -> do
             let env = Env { envConfig = config, envExchange = exchange }
-            result <- runBotM env initialBotState (executeRound validPlan)
-            either
-                (\err -> do
+            result <- runBotM env st (executeRound validPlan)
+            case result of
+                Left err -> do
                     let msg = "Error ejecutando ronda: " ++ show err
                     putStrLn msg
-                    return $ Just (formatExecutionError (show err)))
-                (\(rr, st) -> do
+                    return (Just (formatExecutionError (show err)), st)
+                Right (rr, newSt) -> do
                     printRoundResult rr
-                    putStrLn (formatBotStateSummary st)
-                    return $ Just (formatRoundResult rr))
-                result
+                    putStrLn (formatBotStateSummary newSt)
+                    return (Just (formatRoundResult rr), newSt)
 
 -- | Orquesta un ciclo completo: detección, decisión, ejecución y notificación.
-handleSnapshot :: Config -> AppExchange -> MarketSnapshot -> IO ()
-handleSnapshot config exchange snapshot = do
+-- Devuelve el nuevo estado del bot para ser persistido.
+handleSnapshot :: Config -> AppExchange -> MarketSnapshot -> BotState -> IO BotState
+handleSnapshot config exchange snapshot st = do
     let paths    = allTriangularPaths tradingAssets
         amountIn = AssetQty USDT (cfgMaxTradeUSDT config)
         opps     = detectOpportunities paths snapshot amountIn
         decision = makeDecision (cfgMinProfit config) opps
     putStrLn $ "\n" ++ formatDecision decision
-    postTradeReport <- executeDecision config exchange snapshot decision
-    when (cfgTelegramEnabled config) $
-        do
-            sendTelegramMessage config (formatDecision decision) >>=
-                either
-                    (\err -> putStrLn $ "Error enviando Telegram: " ++ show err)
-                    (\_ -> putStrLn "Notificación de decisión enviada a Telegram")
-            case postTradeReport of
-                Nothing -> return ()
-                Just report ->
-                    sendTelegramMessage config report >>=
-                        either
-                            (\err -> putStrLn $ "Error enviando Telegram post-trade: " ++ show err)
-                            (\_ -> putStrLn "Notificación post-trade enviada a Telegram")
+    (postTradeReport, newSt) <- executeDecision config exchange snapshot decision st
+    when (cfgTelegramEnabled config) $ do
+        sendTelegramMessage config (formatDecision decision) >>=
+            either
+                (\err -> putStrLn $ "Error enviando Telegram: " ++ show err)
+                (\_ -> putStrLn "Notificación de decisión enviada a Telegram")
+        case postTradeReport of
+            Nothing -> return ()
+            Just report ->
+                sendTelegramMessage config report >>=
+                    either
+                        (\err -> putStrLn $ "Error enviando Telegram post-trade: " ++ show err)
+                        (\_ -> putStrLn "Notificación post-trade enviada a Telegram")
+    return newSt
 
-runWithExchange :: Config -> AppExchange -> IO ()
-runWithExchange config exchange = do
+runWithExchange :: Config -> AppExchange -> BotState -> IO ()
+runWithExchange config exchange initSt = do
     let env = Env { envConfig = config, envExchange = exchange }
-    result <- runBotM env initialBotState $ do
+    result <- runBotM env initSt $ do
         checkConnectivityOrThrow
         liftIO (putStrLn "Conectividad OK")
         snapshot <- fetchMarketSnapshotOrThrow tradingAssets
-        liftIO (handleSnapshot config exchange snapshot)
+        newSt <- liftIO (handleSnapshot config exchange snapshot initSt)
+        liftIO (saveState (cfgStateFile config) (fromBotState newSt))
     either
         (\err -> putStrLn $ "Error critico del bot: " ++ show err)
         (\_ -> return ())
@@ -126,4 +128,6 @@ main :: IO ()
 main = do
     config <- loadConfig
     exchange <- configureAppExchange config
-    runWithExchange config exchange
+    persisted <- loadState (cfgStateFile config)
+    let initSt = applyToInitialState persisted
+    runWithExchange config exchange initSt

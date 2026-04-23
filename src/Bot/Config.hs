@@ -34,6 +34,7 @@ data Config = Config
     , cfgTelegramToken   :: String
     , cfgTelegramChatId  :: String
     , cfgTelegramEnabled :: Bool
+    , cfgStateFile       :: FilePath
     } deriving (Show)
 
 loadConfig :: IO Config
@@ -51,7 +52,8 @@ loadConfig = do
     telegramChatId <- getEnvOrDefault "TELEGRAM_CHAT_ID" "" id
     telegramEnabled <- getEnvOrDefault "TELEGRAM_ENABLED" True readBool
     exchangeRaw     <- getEnvOrDefault "BOT_EXCHANGE" "binance" id
-    
+    stateFile       <- getEnvOrDefault "BOT_STATE_FILE" "bot_state.json" id
+
     return Config
         { cfgApiKey = apiKey
         , cfgApiSecret = apiSecret
@@ -63,6 +65,7 @@ loadConfig = do
         , cfgTelegramToken = telegramToken
         , cfgTelegramChatId = telegramChatId
         , cfgTelegramEnabled = telegramEnabled
+        , cfgStateFile = stateFile
         }
 
 readBool :: String -> Bool
