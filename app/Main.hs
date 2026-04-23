@@ -10,6 +10,7 @@ import Exchange.Interface
 import Exchange.AppExchange (AppExchange, configureAppExchange)
 import Notification.Telegram
 import Control.Monad (when)
+import Control.Monad.IO.Class (liftIO)
 import Data.List (intercalate)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -110,14 +111,16 @@ handleSnapshot config exchange snapshot = do
 
 runWithExchange :: Config -> AppExchange -> IO ()
 runWithExchange config exchange = do
-    checkConnectivity exchange >>=
-        either
-            (\err -> putStrLn $ "Error de conectividad: " ++ show err)
-            (\_ -> putStrLn "Conectividad OK")
-    fetchMarketSnapshot exchange tradingAssets >>=
-        either
-            (\err -> putStrLn $ "Error obteniendo mercado: " ++ show err)
-            (handleSnapshot config exchange)
+    let env = Env { envConfig = config, envExchange = exchange }
+    result <- runBotM env initialBotState $ do
+        checkConnectivityOrThrow
+        liftIO (putStrLn "Conectividad OK")
+        snapshot <- fetchMarketSnapshotOrThrow tradingAssets
+        liftIO (handleSnapshot config exchange snapshot)
+    either
+        (\err -> putStrLn $ "Error critico del bot: " ++ show err)
+        (\_ -> return ())
+        result
 
 main :: IO ()
 main = do

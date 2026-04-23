@@ -13,8 +13,8 @@
 - [ ] Persistir `BotState` entre iteraciones del ciclo principal (no reiniciar en cada ronda).
 
 ## Manejo de errores (ExceptT)
-- [ ] Unificar estrategia de errores: qué va por `ExceptT BotError` y qué queda como `RoundPartial`.
-- [ ] Aplicar `throwError` en fallos críticos (conectividad/API), manteniendo parciales para fallos recuperables.
+- [x] Unificar estrategia de errores: qué va por `ExceptT BotError` y qué queda como `RoundPartial`.
+- [x] Aplicar `throwError` en fallos críticos (conectividad/API), manteniendo parciales para fallos recuperables.
 
 ## Dependencias e informe
 - [ ] Revisar `.cabal`: agregar `transformers` explícito si el informe/materia lo exige formalmente.

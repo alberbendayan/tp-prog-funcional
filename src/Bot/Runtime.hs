@@ -9,15 +9,17 @@ module Bot.Runtime
   , BotState(..)
   , BotError(..)
   , initialBotState
+  , checkConnectivityOrThrow
+  , fetchMarketSnapshotOrThrow
   , executeRound
   ) where
 
 import Bot.Config (Config)
 import Bot.Domain
-import Exchange.Interface (Exchange(..))
+import Exchange.Interface (Exchange(..), ExchangeError(..))
 import Control.Monad.Reader (ReaderT, MonadReader, ask, runReaderT)
 import Control.Monad.State.Strict (StateT, MonadState, runStateT, modify)
-import Control.Monad.Except (ExceptT(..), MonadError, runExceptT)
+import Control.Monad.Except (ExceptT(..), MonadError, runExceptT, throwError)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -86,12 +88,43 @@ buildRoundResult amtIn fills errs = RoundResult
     , roundStatus    = buildRoundStatusFromErrors errs
     }
 
-executeStepsSequentially :: (MonadIO m, Exchange e) => e -> [OrderStep] -> [Fill] -> m ([Fill], [String])
+executeStepsSequentially
+  :: (MonadIO m, MonadError BotError m, Exchange e)
+  => e -> [OrderStep] -> [Fill] -> m ([Fill], [String])
 executeStepsSequentially _  []     acc = return (reverse acc, [])
 executeStepsSequentially ex (s:ss) acc = executeOrder ex s >>= onResult
   where
-    onResult (Left  err)  = return (reverse acc, [show err])
+    onResult (Left  err)  = handleOrderError err
     onResult (Right fill) = executeStepsSequentially ex ss (fill : acc)
+
+    handleOrderError (ExchangeOrderError msg) =
+      return (reverse acc, [msg])
+    handleOrderError (ExchangeConnError msg) =
+      failCritical "Fallo critico de conectividad durante ejecucion de orden" msg
+    handleOrderError (ExchangeFetchError msg) =
+      failCritical "Fallo critico de API durante ejecucion de orden" msg
+
+    failCritical label msg = throwError (BotExchangeError (label ++ ": " ++ msg))
+
+checkConnectivityOrThrow :: Exchange e => BotM e ()
+checkConnectivityOrThrow = do
+    env <- ask
+    conn <- checkConnectivity (envExchange env)
+    case conn of
+      Left err ->
+        throwError $ BotExchangeError ("Error de conectividad: " ++ show err)
+      Right False ->
+        throwError $ BotExchangeError "Error de conectividad: checkConnectivity devolvio False"
+      Right True ->
+        return ()
+
+fetchMarketSnapshotOrThrow :: Exchange e => [Asset] -> BotM e MarketSnapshot
+fetchMarketSnapshotOrThrow assets = do
+    env <- ask
+    snapshot <- fetchMarketSnapshot (envExchange env) assets
+    case snapshot of
+      Left err -> throwError $ BotExchangeError ("Error obteniendo mercado: " ++ show err)
+      Right s  -> return s
 
 executeRound :: Exchange e => ExecutionPlan -> BotM e RoundResult
 executeRound plan = do
