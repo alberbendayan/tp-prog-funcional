@@ -71,16 +71,30 @@ formatDecision :: Decision -> String
 formatDecision NoTrade = "Sin oportunidades de arbitraje rentables."
 formatDecision (DoTrade opp) =
     let path = arbPath opp
-        p1   = show (arbPair1 path)
-        p2   = show (arbPair2 path)
-        p3   = show (arbPair3 path)
-        perc = arbProfitPerc opp
-        absP = arbProfitAbs opp
+        p1   = arbPair1 path
+        p2   = arbPair2 path
+        p3   = arbPair3 path
+        perc = fixed 2 (arbProfitPerc opp)
+        absP = fmtAmount USDT (arbProfitAbs opp)
+        amountIn = arbAmountIn opp
+        amountOut = arbAmountOut opp
     in unlines
-        [ "Oportunidad: " ++ p1 ++ " -> " ++ p2 ++ " -> " ++ p3
-        , "Ganancia: " ++ show perc ++ "% (" ++ show absP ++ " USDT)"
-        , "Entrada: " ++ show (qtyAmount (arbAmountIn opp)) ++ " " ++ show (qtyAsset (arbAmountIn opp))
-        , "Salida esperada: " ++ show (qtyAmount (arbAmountOut opp)) ++ " " ++ show (qtyAsset (arbAmountOut opp))
+        [ "🔥 Oportunidad de arbitraje detectada"
+        , ""
+        , "Ruta:"
+        , "  1) " ++ fmtPair p1
+        , "  2) " ++ fmtPair p2
+        , "  3) " ++ fmtPair p3
+        , "  Ciclo: " ++ fmtPair p1 ++ " → " ++ fmtPair p2 ++ " → " ++ fmtPair p3
+        , ""
+        , "Ganancia estimada:"
+        , "  " ++ perc ++ "% (" ++ absP ++ " USDT)"
+        , ""
+        , "Entrada:"
+        , "  " ++ fmtAmount (qtyAsset amountIn) (qtyAmount amountIn) ++ " " ++ show (qtyAsset amountIn)
+        , ""
+        , "Salida esperada:"
+        , "  " ++ fmtAmount (qtyAsset amountOut) (qtyAmount amountOut) ++ " " ++ show (qtyAsset amountOut)
         ]
 
 formatRoundResult :: RoundResult -> String
@@ -136,4 +150,7 @@ decimalsForAsset _    = 8
 
 fixed :: Int -> Double -> String
 fixed decimals x = showFFloat (Just decimals) x ""
+
+fmtPair :: Pair -> String
+fmtPair pair = show (base pair) ++ "/" ++ show (quote pair)
 
