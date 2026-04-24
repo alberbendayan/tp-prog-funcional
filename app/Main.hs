@@ -10,14 +10,17 @@ import Bot.Persist
 import Exchange.Interface
 import Exchange.AppExchange (AppExchange, configureAppExchange)
 import Notification.Telegram
-import Control.Concurrent         (threadDelay)
+import Notification.TelegramCommands (runCommandListener)
+import Control.Concurrent         (forkIO, threadDelay)
 import Control.Monad              (when)
 import Control.Monad.Error.Class  (catchError)
 import Control.Monad.IO.Class     (liftIO)
 import Control.Monad.Reader       (asks)
 import Control.Monad.State.Strict (get, put)
+import Data.IORef                 (IORef, newIORef, writeIORef)
 import Data.List (intercalate)
 import Data.Map.Strict (Map)
+import Data.Time.Clock            (UTCTime, getCurrentTime)
 import qualified Data.Map.Strict as M
 
 tradingAssets :: [Asset]
@@ -72,15 +75,16 @@ hasLastRoundResult st = case bsLastRoundResult st of
 
 -- | Ejecuta la decisión del bot.
 -- Toma el estado actual y devuelve el reporte y el nuevo estado.
-executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> BotState -> IO (Maybe String, BotState)
-executeDecision _      _        _        NoTrade       st = return (Nothing, st)
-executeDecision config exchange snapshot (DoTrade opp) st =
+executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> BotState -> IORef BotState -> UTCTime -> IO (Maybe String, BotState)
+executeDecision _      _        _        NoTrade       st _        _         = return (Nothing, st)
+executeDecision config exchange snapshot (DoTrade opp) st stateRef startTime =
     case buildValidPlan snapshot opp of
         Left msg        -> do
             putStrLn msg
             return (Just (formatExecutionError msg), st)
         Right validPlan -> do
-            let env = Env { envConfig = config, envExchange = exchange }
+            let env = Env { envConfig = config, envExchange = exchange
+                          , envStateRef = stateRef, envStartTime = startTime }
             result <- runBotM env st (executeRound validPlan)
             case result of
                 Left err -> do
@@ -104,8 +108,8 @@ logBalanceResult (Right bals) amt =
     putStrLn $ "Balance USDT disponible: " ++ show (M.findWithDefault 0 USDT bals)
             ++ " | Monto a operar: " ++ show amt
 
-handleSnapshot :: Config -> AppExchange -> MarketSnapshot -> BotState -> IO BotState
-handleSnapshot config exchange snapshot st = do
+handleSnapshot :: Config -> AppExchange -> MarketSnapshot -> BotState -> IORef BotState -> UTCTime -> IO BotState
+handleSnapshot config exchange snapshot st stateRef startTime = do
     balancesResult  <- fetchBalances exchange
     let effectiveAmount = resolveTradeAmount config balancesResult
     logBalanceResult balancesResult effectiveAmount
@@ -114,7 +118,9 @@ handleSnapshot config exchange snapshot st = do
         opps     = detectOpportunities paths snapshot amountIn
         decision = makeDecision (cfgMinProfit config) opps
     putStrLn $ "\n" ++ formatDecision decision
-    (postTradeReport, newSt) <- executeDecision config exchange snapshot decision st
+    (postTradeReport, newSt) <- executeDecision config exchange snapshot decision st stateRef startTime
+    let fetchedBals = either (const M.empty) id balancesResult
+        newSt' = newSt { bsLastFetchedBalances = fetchedBals }
     when (cfgTelegramEnabled config) $ do
         sendTelegramMessage config (formatDecision decision) >>=
             either
@@ -127,18 +133,21 @@ handleSnapshot config exchange snapshot st = do
                     either
                         (\err -> putStrLn $ "Error enviando Telegram post-trade: " ++ show err)
                         (\_ -> putStrLn "Notificación post-trade enviada a Telegram")
-    return newSt
+    return newSt'
 
 runOneRound :: BotM AppExchange ()
 runOneRound = do
     checkConnectivityOrThrow
     liftIO $ putStrLn "Conectividad OK"
-    snapshot <- fetchMarketSnapshotOrThrow tradingAssets
-    config   <- asks envConfig
-    exchange <- asks envExchange
-    curSt    <- get
-    newSt    <- liftIO $ handleSnapshot config exchange snapshot curSt
+    snapshot  <- fetchMarketSnapshotOrThrow tradingAssets
+    config    <- asks envConfig
+    exchange  <- asks envExchange
+    stateRef  <- asks envStateRef
+    startTime <- asks envStartTime
+    curSt     <- get
+    newSt     <- liftIO $ handleSnapshot config exchange snapshot curSt stateRef startTime
     liftIO $ saveState (cfgStateFile config) (fromBotState newSt)
+    liftIO $ writeIORef stateRef newSt
     put newSt
 
 botLoop :: BotM AppExchange ()
@@ -151,10 +160,17 @@ botLoop = do
 
 main :: IO ()
 main = do
-    config   <- loadConfig
-    exchange <- configureAppExchange config
+    config    <- loadConfig
+    exchange  <- configureAppExchange config
     persisted <- loadState (cfgStateFile config)
+    startTime <- getCurrentTime
     let initSt = applyToInitialState persisted
-        env    = Env { envConfig = config, envExchange = exchange }
+    stateRef  <- newIORef initSt
+    let env = Env { envConfig    = config
+                  , envExchange  = exchange
+                  , envStateRef  = stateRef
+                  , envStartTime = startTime }
+    when (cfgTelegramEnabled config) $
+        forkIO (runCommandListener config stateRef startTime) >> pure ()
     result <- runBotM env initSt botLoop
     either (\err -> putStrLn $ "Error irrecuperable: " ++ show err) (\_ -> pure ()) result

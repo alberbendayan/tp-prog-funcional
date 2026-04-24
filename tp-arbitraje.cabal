@@ -51,6 +51,7 @@ library
         Bot.Persist
         Notification.Types
         Notification.Telegram
+        Notification.TelegramCommands
 
 executable tp-arbitraje
     import:           shared-properties

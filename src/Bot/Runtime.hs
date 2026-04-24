@@ -21,33 +21,39 @@ import Control.Monad.Reader (ReaderT, MonadReader, ask, runReaderT)
 import Control.Monad.State.Strict (StateT, MonadState, runStateT, modify)
 import Control.Monad.Except (ExceptT(..), MonadError, runExceptT, throwError)
 import Control.Monad.IO.Class (MonadIO)
+import Data.IORef (IORef)
 import Data.Map.Strict (Map)
+import Data.Time.Clock (UTCTime)
 import qualified Data.Map.Strict as M
 
 data Env e = Env
-  { envConfig   :: Config
-  , envExchange :: e
+  { envConfig    :: Config
+  , envExchange  :: e
+  , envStateRef  :: IORef BotState
+  , envStartTime :: UTCTime
   }
 
 data BotState = BotState
-  { bsRounds         :: [RoundResult]
-  , bsLastRoundResult :: Maybe RoundResult
-  , bsBalances       :: Map Asset Double
-  , bsOpenOrders     :: [OrderStep]
-  , bsRoundCount     :: Int
-  , bsPnlAccumulated :: Map Asset Double
-  , bsErrorsPerRound :: [Int]
+  { bsRounds               :: [RoundResult]
+  , bsLastRoundResult      :: Maybe RoundResult
+  , bsBalances             :: Map Asset Double
+  , bsOpenOrders           :: [OrderStep]
+  , bsRoundCount           :: Int
+  , bsPnlAccumulated       :: Map Asset Double
+  , bsErrorsPerRound       :: [Int]
+  , bsLastFetchedBalances  :: Map Asset Double
   }
 
 initialBotState :: BotState
 initialBotState = BotState
-  { bsRounds = []
-  , bsLastRoundResult = Nothing
-  , bsBalances = M.empty
-  , bsOpenOrders = []
-  , bsRoundCount = 0
-  , bsPnlAccumulated = M.empty
-  , bsErrorsPerRound = []
+  { bsRounds              = []
+  , bsLastRoundResult     = Nothing
+  , bsBalances            = M.empty
+  , bsOpenOrders          = []
+  , bsRoundCount          = 0
+  , bsPnlAccumulated      = M.empty
+  , bsErrorsPerRound      = []
+  , bsLastFetchedBalances = M.empty
   }
 
 data BotError
