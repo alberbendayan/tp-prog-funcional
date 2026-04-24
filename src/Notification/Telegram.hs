@@ -20,6 +20,7 @@ import GHC.Generics
 import Network.HTTP.Req
 import Data.List (intercalate)
 import Numeric (showFFloat)
+import qualified Data.Map.Strict as M
 
 data TelegramRequest = TelegramRequest
     { chat_id :: String
@@ -100,16 +101,55 @@ formatDecision (DoTrade opp) =
 formatRoundResult :: RoundResult -> String
 formatRoundResult rr =
     let statusLine = "Estado: " ++ show (roundStatus rr)
-        pnlLine    = "PnL: " ++ either ("error - " ++) showPnl (roundPnl rr)
-        fillsLine  = case roundFills rr of
-            []    -> "Fills: sin ejecuciones"
-            fills -> "Fills (" ++ show (length fills) ++ "):\n" ++ intercalate "\n" (zipWith formatFillLine [1 :: Int ..] fills)
+        pnlLine    = "PnL neto operatoria: " ++ showNetPnl rr
+        pnlPctLine = "PnL: " ++ showNetPnlPercent rr
+        deltasBlock = formatAssetDeltasBlock rr
+        stepsBlock  = case roundFills rr of
+            []    -> "Pasos:\n  • sin ejecuciones"
+            fills -> "Pasos (" ++ show (length fills) ++ "):\n" ++ intercalate "\n\n" (zipWith formatFillLine [1 :: Int ..] fills)
     in unlines
         [ "📈 Resultado post-trade"
+        , ""
         , statusLine
+        , ""
         , pnlLine
-        , fillsLine
+        , pnlPctLine
+        , ""
+        , deltasBlock
+        , ""
+        , stepsBlock
         ]
+
+showNetPnl :: RoundResult -> String
+showNetPnl rr =
+    signedAmountByAsset USDT (roundNetPnlUsdt rr) ++ " USDT"
+
+showNetPnlPercent :: RoundResult -> String
+showNetPnlPercent rr
+    | opSize <= 0 = "N/A"
+    | otherwise   = signedPercent pct
+  where
+    opSize = qtyAmount (roundAmountIn rr)
+    pct = 100 * roundNetPnlUsdt rr / opSize
+
+formatAssetDeltasBlock :: RoundResult -> String
+formatAssetDeltasBlock rr
+    | M.null deltas = "Cambio activos:\n  • sin cambios"
+    | otherwise     = unlines ("Cambio activos:" : map showEntry (M.toList deltas))
+  where
+    deltas = roundAssetDeltas rr
+    showEntry (asset, amount) = "  • " ++ signedAmountByAsset asset amount ++ " " ++ show asset
+
+roundAssetDeltas :: RoundResult -> M.Map Asset Double
+roundAssetDeltas rr =
+    let amtIn = roundAmountIn rr
+        amtOut = roundAmountOut rr
+        baseDeltas =
+            [ (qtyAsset amtIn, - qtyAmount amtIn)
+            , (qtyAsset amtOut, qtyAmount amtOut)
+            ]
+        feeDeltas = map (\f -> (fillFeeAsset f, - fillFee f)) (roundFills rr)
+    in M.fromListWith (+) (baseDeltas ++ feeDeltas)
 
 formatExecutionError :: String -> String
 formatExecutionError err = unlines
@@ -118,12 +158,9 @@ formatExecutionError err = unlines
     , "Error: " ++ err
     ]
 
-showPnl :: AssetQty -> String
-showPnl pnl = signedAmountByAsset (qtyAsset pnl) (qtyAmount pnl) ++ " " ++ show (qtyAsset pnl)
-
 formatFillLine :: Int -> Fill -> String
 formatFillLine idx fill =
-    show idx ++ ". "
+    "  " ++ show idx ++ ". "
         ++ show (fillSide fill) ++ " "
         ++ fmtAmount (base (fillPair fill)) (fillAmountBase fill) ++ " "
         ++ show (base (fillPair fill)) ++ " | precio: "
@@ -150,6 +187,11 @@ decimalsForAsset _    = 8
 
 fixed :: Int -> Double -> String
 fixed decimals x = showFFloat (Just decimals) x ""
+
+signedPercent :: Double -> String
+signedPercent p
+    | p >= 0     = "+" ++ fixed 2 p ++ "%"
+    | otherwise  = fixed 2 p ++ "%"
 
 fmtPair :: Pair -> String
 fmtPair pair = show (base pair) ++ "/" ++ show (quote pair)

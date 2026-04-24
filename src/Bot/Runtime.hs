@@ -88,13 +88,20 @@ calculateFinalOutputAmount _     fills =
     in AssetQty (quote (fillPair lastFill))
                 (fillAmountBase lastFill * unPrice (fillPrice lastFill))
 
-buildRoundResult :: AssetQty -> [Fill] -> [String] -> RoundResult
-buildRoundResult amtIn fills errs = RoundResult
-    { roundFills     = fills
-    , roundAmountIn  = amtIn
-    , roundAmountOut = calculateFinalOutputAmount amtIn fills
-    , roundStatus    = buildRoundStatusFromErrors errs
-    }
+buildRoundResult :: MarketSnapshot -> AssetQty -> [Fill] -> [String] -> Either String RoundResult
+buildRoundResult snapshot amtIn fills errs =
+    let amtOut = calculateFinalOutputAmount amtIn fills
+        deltas = roundBalanceDeltasFromParts amtIn amtOut fills
+    in do
+      validateSameAsset amtIn amtOut
+      netPnl <- netPnlUsdtFromDeltas snapshot deltas
+      Right RoundResult
+        { roundFills      = fills
+        , roundAmountIn   = amtIn
+        , roundAmountOut  = amtOut
+        , roundNetPnlUsdt = netPnl
+        , roundStatus     = buildRoundStatusFromErrors errs
+        }
 
 executeStepsSequentially
   :: (MonadIO m, MonadError BotError m, Exchange e)
@@ -134,14 +141,16 @@ fetchMarketSnapshotOrThrow assets = do
       Left err -> throwError $ BotExchangeError ("Error obteniendo mercado: " ++ show err)
       Right s  -> return s
 
-executeRound :: Exchange e => ExecutionPlan -> BotM e RoundResult
-executeRound plan = do
+executeRound :: Exchange e => MarketSnapshot -> ExecutionPlan -> BotM e RoundResult
+executeRound snapshot plan = do
     env <- ask
     let steps = executionPlanSteps plan
         amtIn = extractStepInputAmount (head steps)
     modify $ \s -> s { bsOpenOrders = steps }
     (fills, errs) <- executeStepsSequentially (envExchange env) steps []
-    let result = buildRoundResult amtIn fills errs
+    result <- case buildRoundResult snapshot amtIn fills errs of
+      Left err -> throwError (BotExecutionError ("No se pudo calcular PnL neto USDT: " ++ err))
+      Right rr -> return rr
     modify $ updateStateWithRound result
     return result
 
@@ -153,18 +162,15 @@ updateStateWithRound rr st =
       , bsBalances = mergeAssetMaps (bsBalances st) (roundBalanceDeltas rr)
       , bsOpenOrders = []
       , bsRoundCount = bsRoundCount st + 1
-      , bsPnlAccumulated = mergeAssetMaps (bsPnlAccumulated st) (roundPnlMap rr)
+      , bsPnlAccumulated = mergeAssetMaps (bsPnlAccumulated st) (roundNetPnlMap rr)
       , bsErrorsPerRound = bsErrorsPerRound st ++ [roundErrorCount rr]
       }
 
 mergeAssetMaps :: Map Asset Double -> Map Asset Double -> Map Asset Double
 mergeAssetMaps = M.unionWith (+)
 
-roundPnlMap :: RoundResult -> Map Asset Double
-roundPnlMap rr =
-    case roundPnl rr of
-      Left _ -> M.empty
-      Right pnl -> M.singleton (qtyAsset pnl) (qtyAmount pnl)
+roundNetPnlMap :: RoundResult -> Map Asset Double
+roundNetPnlMap rr = M.singleton USDT (roundNetPnlUsdt rr)
 
 roundErrorCount :: RoundResult -> Int
 roundErrorCount rr =
@@ -175,11 +181,60 @@ roundErrorCount rr =
 
 roundBalanceDeltas :: RoundResult -> Map Asset Double
 roundBalanceDeltas rr =
-    let amtIn = roundAmountIn rr
-        amtOut = roundAmountOut rr
-        baseDeltas =
+    roundBalanceDeltasFromParts (roundAmountIn rr) (roundAmountOut rr) (roundFills rr)
+
+roundBalanceDeltasFromParts :: AssetQty -> AssetQty -> [Fill] -> Map Asset Double
+roundBalanceDeltasFromParts amtIn amtOut fills =
+    let baseDeltas =
           [ (qtyAsset amtIn, - qtyAmount amtIn)
           , (qtyAsset amtOut, qtyAmount amtOut)
           ]
-        feeDeltas = map (\f -> (fillFeeAsset f, - fillFee f)) (roundFills rr)
+        feeDeltas = map (\f -> (fillFeeAsset f, - fillFee f)) fills
     in M.fromListWith (+) (baseDeltas ++ feeDeltas)
+
+netPnlUsdtFromDeltas :: MarketSnapshot -> Map Asset Double -> Either String Double
+netPnlUsdtFromDeltas snapshot deltas =
+    sum <$> traverse valueEntry (M.toList deltas)
+  where
+    valueEntry :: (Asset, Double) -> Either String Double
+    valueEntry (asset, deltaQty) = do
+      rate <- assetUsdtRate snapshot asset
+      Right (deltaQty * rate)
+
+assetUsdtRate :: MarketSnapshot -> Asset -> Either String Double
+assetUsdtRate _ USDT = Right 1
+assetUsdtRate snapshot asset =
+    directRate `orElse` inverseRate
+  where
+    quotes = snapshotQuotes snapshot
+    directPair = Pair asset USDT
+    inversePair = Pair USDT asset
+
+    directRate = case M.lookup directPair quotes of
+      Just q  -> Right (midPrice q)
+      Nothing -> Left $ "Sin cotización directa a USDT para " ++ show asset
+
+    inverseRate = case M.lookup inversePair quotes of
+      Just q ->
+        let mid = midPrice q
+        in if mid <= 0
+           then Left $ "Cotización inválida para " ++ show inversePair
+           else Right (1 / mid)
+      Nothing -> Left $ "Sin cotización inversa a USDT para " ++ show asset
+
+    orElse :: Either String a -> Either String a -> Either String a
+    orElse (Right x) _ = Right x
+    orElse (Left _) y  = y
+
+midPrice :: PairQuote -> Double
+midPrice q = (unPrice (bidPrice q) + unPrice (askPrice q)) / 2
+
+validateSameAsset :: AssetQty -> AssetQty -> Either String ()
+validateSameAsset amtIn amtOut
+  | qtyAsset amtIn == qtyAsset amtOut = Right ()
+  | otherwise =
+      Left $
+        "roundAmountIn/out tienen assets distintos: in="
+          ++ show (qtyAsset amtIn)
+          ++ ", out="
+          ++ show (qtyAsset amtOut)

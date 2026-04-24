@@ -30,8 +30,6 @@ module Bot.Domain
   , Fill(..)
   , RoundStatus(..)
   , RoundResult(..)
-  , roundPnl
-  , roundPnlAmount
   , PersistedRound(..)
   ) where
 
@@ -194,21 +192,9 @@ data RoundResult = RoundResult
   { roundFills     :: [Fill]
   , roundAmountIn  :: AssetQty
   , roundAmountOut :: AssetQty
+  , roundNetPnlUsdt :: Double
   , roundStatus    :: RoundStatus
   } deriving (Show, Eq, Generic)
-
-roundPnl :: RoundResult -> Either String AssetQty
-roundPnl r
-  | qtyAsset (roundAmountIn r) /= qtyAsset (roundAmountOut r) =
-      Left "roundPnl: roundAmountIn/out tienen assets distintos"
-  | otherwise =
-      Right $ AssetQty
-        { qtyAsset  = qtyAsset (roundAmountIn r)
-        , qtyAmount = qtyAmount (roundAmountOut r) - qtyAmount (roundAmountIn r)
-        }
-
-roundPnlAmount :: RoundResult -> Either String Double
-roundPnlAmount r = qtyAmount <$> roundPnl r
 
 data PersistedRound = PersistedRound
   { prTimestamp :: UTCTime

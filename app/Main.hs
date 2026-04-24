@@ -26,28 +26,23 @@ import qualified Data.Map.Strict as M
 tradingAssets :: [Asset]
 tradingAssets = [BTC, ETH, BNB, USDT]
 
--- | Intenta construir y validar el plan de ejecución a partir de una oportunidad.
+-- | Intenta construir y validar el plan de ejecuci?n a partir de una oportunidad.
 -- Devuelve Left con un mensaje de error si alguno de los pasos falla.
 buildValidPlan :: MarketSnapshot -> ArbOpportunity -> Either String ExecutionPlan
 buildValidPlan snapshot opp =
     case opportunityToExecutionPlan snapshot opp of
-        Nothing   -> Left "No se pudo construir el plan de ejecución"
+        Nothing   -> Left "No se pudo construir el plan de ejecuci?n"
         Just plan -> case validateAndQuantizePlan plan of
-            Left planErr -> Left $ "Plan inválido tras cuantización: " ++ show planErr
+            Left planErr -> Left $ "Plan inv?lido tras cuantizaci?n: " ++ show planErr
             Right valid  -> case validatePlanLiquidity snapshot valid of
                 Left liqErr -> Left $ "Liquidez insuficiente para ejecutar: " ++ liqErr
                 Right ()    -> Right valid
-
--- | Formatea el PnL de una ronda para mostrarlo por pantalla.
-formatPnl :: Either String AssetQty -> String
-formatPnl (Left msg)  = "error — " ++ msg
-formatPnl (Right pnl) = show (qtyAmount pnl) ++ " " ++ show (qtyAsset pnl)
 
 -- | Imprime el resultado de una ronda de trading.
 printRoundResult :: RoundResult -> IO ()
 printRoundResult rr = do
     putStrLn $ "Status: " ++ show (roundStatus rr)
-    putStrLn $ "PnL:    " ++ formatPnl (roundPnl rr)
+    putStrLn $ "PnL neto operatoria: " ++ show (roundNetPnlUsdt rr) ++ " USDT"
 
 formatBotStateSummary :: BotState -> String
 formatBotStateSummary st =
@@ -73,7 +68,7 @@ hasLastRoundResult st = case bsLastRoundResult st of
   Nothing -> False
   Just _  -> True
 
--- | Ejecuta la decisión del bot.
+-- | Ejecuta la decisi?n del bot.
 -- Toma el estado actual y devuelve el reporte y el nuevo estado.
 executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> BotState -> IORef BotState -> UTCTime -> IO (Maybe String, BotState)
 executeDecision _      _        _        NoTrade       st _        _         = return (Nothing, st)
@@ -85,7 +80,7 @@ executeDecision config exchange snapshot (DoTrade opp) st stateRef startTime =
         Right validPlan -> do
             let env = Env { envConfig = config, envExchange = exchange
                           , envStateRef = stateRef, envStartTime = startTime }
-            result <- runBotM env st (executeRound validPlan)
+            result <- runBotM env st (executeRound snapshot validPlan)
             case result of
                 Left err -> do
                     let msg = "Error ejecutando ronda: " ++ show err
@@ -96,7 +91,7 @@ executeDecision config exchange snapshot (DoTrade opp) st stateRef startTime =
                     putStrLn (formatBotStateSummary newSt)
                     return (Just (formatRoundResult rr), newSt)
 
--- | Orquesta un ciclo completo: detección, decisión, ejecución y notificación.
+-- | Orquesta un ciclo completo: detecci?n, decisi?n, ejecuci?n y notificaci?n.
 -- Devuelve el nuevo estado del bot para ser persistido.
 resolveTradeAmount :: Config -> Either ExchangeError (Map Asset Double) -> Double
 resolveTradeAmount config (Right bals) = min (cfgMaxTradeUSDT config) (M.findWithDefault 0 USDT bals)
@@ -115,7 +110,7 @@ mkPersistedRound rr = do
         pairs  = intercalate " -> " (map (show . fillPair) (roundFills rr))
         amtIn  = qtyAmount (roundAmountIn rr)
         amtOut = qtyAmount (roundAmountOut rr)
-        pnl    = amtOut - amtIn
+        pnl    = roundNetPnlUsdt rr
         status = case roundStatus rr of
                     RoundSuccess    -> "exitosa"
                     RoundFailed _   -> "fallida"
@@ -152,14 +147,14 @@ handleSnapshot config exchange snapshot st stateRef startTime = do
         sendTelegramMessage config (formatDecision decision) >>=
             either
                 (\err -> putStrLn $ "Error enviando Telegram: " ++ show err)
-                (\_ -> putStrLn "Notificación de decisión enviada a Telegram")
+                (\_ -> putStrLn "Notificaci?n de decisi?n enviada a Telegram")
         case postTradeReport of
             Nothing -> return ()
             Just report ->
                 sendTelegramMessage config report >>=
                     either
                         (\err -> putStrLn $ "Error enviando Telegram post-trade: " ++ show err)
-                        (\_ -> putStrLn "Notificación post-trade enviada a Telegram")
+                        (\_ -> putStrLn "Notificaci?n post-trade enviada a Telegram")
     return newSt'
 
 runOneRound :: BotM AppExchange ()
