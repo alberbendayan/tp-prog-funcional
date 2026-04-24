@@ -35,6 +35,7 @@ data Config = Config
     , cfgTelegramChatId  :: String
     , cfgTelegramEnabled :: Bool
     , cfgStateFile       :: FilePath
+    , cfgPollInterval    :: Int
     } deriving (Show)
 
 loadConfig :: IO Config
@@ -53,6 +54,7 @@ loadConfig = do
     telegramEnabled <- getEnvOrDefault "TELEGRAM_ENABLED" True readBool
     exchangeRaw     <- getEnvOrDefault "BOT_EXCHANGE" "binance" id
     stateFile       <- getEnvOrDefault "BOT_STATE_FILE" "bot_state.json" id
+    pollInterval    <- getEnvOrDefault "BOT_POLL_INTERVAL" 30 read
 
     return Config
         { cfgApiKey = apiKey
@@ -66,6 +68,7 @@ loadConfig = do
         , cfgTelegramChatId = telegramChatId
         , cfgTelegramEnabled = telegramEnabled
         , cfgStateFile = stateFile
+        , cfgPollInterval = pollInterval
         }
 
 readBool :: String -> Bool

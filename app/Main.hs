@@ -10,8 +10,12 @@ import Bot.Persist
 import Exchange.Interface
 import Exchange.AppExchange (AppExchange, configureAppExchange)
 import Notification.Telegram
-import Control.Monad (when)
-import Control.Monad.IO.Class (liftIO)
+import Control.Concurrent         (threadDelay)
+import Control.Monad              (when)
+import Control.Monad.Error.Class  (catchError)
+import Control.Monad.IO.Class     (liftIO)
+import Control.Monad.Reader       (asks)
+import Control.Monad.State.Strict (get, put)
 import Data.List (intercalate)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -125,24 +129,32 @@ handleSnapshot config exchange snapshot st = do
                         (\_ -> putStrLn "Notificación post-trade enviada a Telegram")
     return newSt
 
-runWithExchange :: Config -> AppExchange -> BotState -> IO ()
-runWithExchange config exchange initSt = do
-    let env = Env { envConfig = config, envExchange = exchange }
-    result <- runBotM env initSt $ do
-        checkConnectivityOrThrow
-        liftIO (putStrLn "Conectividad OK")
-        snapshot <- fetchMarketSnapshotOrThrow tradingAssets
-        newSt <- liftIO (handleSnapshot config exchange snapshot initSt)
-        liftIO (saveState (cfgStateFile config) (fromBotState newSt))
-    either
-        (\err -> putStrLn $ "Error critico del bot: " ++ show err)
-        (\_ -> return ())
-        result
+runOneRound :: BotM AppExchange ()
+runOneRound = do
+    checkConnectivityOrThrow
+    liftIO $ putStrLn "Conectividad OK"
+    snapshot <- fetchMarketSnapshotOrThrow tradingAssets
+    config   <- asks envConfig
+    exchange <- asks envExchange
+    curSt    <- get
+    newSt    <- liftIO $ handleSnapshot config exchange snapshot curSt
+    liftIO $ saveState (cfgStateFile config) (fromBotState newSt)
+    put newSt
+
+botLoop :: BotM AppExchange ()
+botLoop = do
+    runOneRound `catchError` \err ->
+        liftIO $ putStrLn $ "Error critico (continuando): " ++ show err
+    config <- asks envConfig
+    liftIO $ threadDelay (cfgPollInterval config * 1000000)
+    botLoop
 
 main :: IO ()
 main = do
-    config <- loadConfig
+    config   <- loadConfig
     exchange <- configureAppExchange config
     persisted <- loadState (cfgStateFile config)
     let initSt = applyToInitialState persisted
-    runWithExchange config exchange initSt
+        env    = Env { envConfig = config, envExchange = exchange }
+    result <- runBotM env initSt botLoop
+    either (\err -> putStrLn $ "Error irrecuperable: " ++ show err) (\_ -> pure ()) result
