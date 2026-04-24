@@ -12,6 +12,7 @@ module Bot.Arbitraje
 import Bot.Domain
 import qualified Data.Map.Strict as Map
 import Data.List (tails, maximumBy, permutations)
+import Data.Maybe (fromMaybe)
 import Data.Ord (comparing)
 
 allTriangularPaths :: [Asset] -> [TriangularPath]
@@ -78,14 +79,57 @@ simulatePath snapshot path amountIn = do
   where
     quotes = snapshotQuotes snapshot
 
+-- | Lookup step orientation without liquidity check.
+-- Returns (quote, side, output asset).
+stepLookup :: Map.Map Pair PairQuote -> Pair -> Asset -> Maybe (PairQuote, OrderSide, Asset)
+stepLookup quotes logicalPair asset
+    | asset == base logicalPair
+    , Just q <- Map.lookup logicalPair quotes =
+        Just (q, Sell, quote logicalPair)
+    | asset == quote logicalPair
+    , let binancePair = Pair (quote logicalPair) (base logicalPair)
+    , Just q <- Map.lookup binancePair quotes =
+        Just (q, Buy, base logicalPair)
+    | otherwise = Nothing
+
+-- | Output per unit of input (including fee).
+stepRate :: PairQuote -> OrderSide -> Double
+stepRate q Sell = unPrice (bidPrice q) * (1 - unCommissionRate (pairCommission q))
+stepRate q Buy  = (1 / unPrice (askPrice q)) * (1 - unCommissionRate (pairCommission q))
+
+-- | Max input (in input-asset units) given top-of-book liquidity.
+stepMaxInput :: PairQuote -> OrderSide -> Double
+stepMaxInput q Sell = bidQty q
+stepMaxInput q Buy  = askQty q * unPrice (askPrice q)
+
+-- | Max amountIn that fits within all 3 steps' liquidity.
+-- Converts each step's constraint back to initial-asset units via cumulative rates.
+maxAmountForPath :: Map.Map Pair PairQuote -> TriangularPath -> AssetQty -> Maybe Double
+maxAmountForPath quotes path (AssetQty startAsset _) = do
+    (q1, side1, asset2) <- stepLookup quotes (arbPair1 path) startAsset
+    (q2, side2, asset3) <- stepLookup quotes (arbPair2 path) asset2
+    (q3, side3, _)      <- stepLookup quotes (arbPair3 path) asset3
+    let rate1        = stepRate q1 side1
+        rate2        = stepRate q2 side2
+        maxFromStep1 = stepMaxInput q1 side1
+        maxFromStep2 = stepMaxInput q2 side2 / rate1
+        maxFromStep3 = stepMaxInput q3 side3 / (rate1 * rate2)
+    return $ minimum [maxFromStep1, maxFromStep2, maxFromStep3]
+
 detectOpportunities :: [TriangularPath] -> MarketSnapshot -> AssetQty -> [ArbOpportunity]
 detectOpportunities paths snapshot amountIn =
-    [ ArbOpportunity path amountIn amountOut
+    [ ArbOpportunity path cappedIn amountOut
     | path <- paths
-    , Just amountOut <- [simulatePath snapshot path amountIn]
+    , let cappedIn = capToLiquidity amountIn path
+    , Just amountOut <- [simulatePath snapshot path cappedIn]
     , qtyAsset amountOut == qtyAsset amountIn
-    , qtyAmount amountOut > qtyAmount amountIn
+    , qtyAmount amountOut > qtyAmount cappedIn
     ]
+  where
+    quotes = snapshotQuotes snapshot
+    capToLiquidity (AssetQty a q) path =
+        let liqMax = fromMaybe q (maxAmountForPath quotes path (AssetQty a q))
+        in AssetQty a (min q liqMax)
 
 makeDecision :: Double -> [ArbOpportunity] -> Decision
 makeDecision minProfitPct opps =

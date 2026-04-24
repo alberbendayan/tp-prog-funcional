@@ -14,7 +14,7 @@ import Binance.API.Conversion
     )
 import Bot.Domain (CommissionRate(..), OrderStep(..), OrderSide(..), Fill(..))
 import Data.Bifunctor (first)
-import Binance.API.Types (AccountInfo(..), OrderResponse(..), pairToSymbol, Symbol(..))
+import Binance.API.Types (AccountInfo(..), OrderResponse(..), pairToSymbol, Symbol(..), accountBalances)
 import qualified Data.Text as T
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Data.Time.Clock (getCurrentTime, UTCTime)
@@ -56,6 +56,12 @@ instance Exchange BinanceExchange where
                     Right fees -> return $ tradeFeeMap fees
                     Left _     -> return Map.empty
                 return $ Right $ buildMarketSnapshotWithFees okTickers feeMap defaultCommission
+
+    fetchBalances (BinanceExchange url _ apiKey apiSecret) = do
+        result <- liftIO $ Client.getAccountInfo url apiKey apiSecret
+        return $ case result of
+            Left err   -> Left $ ExchangeFetchError (show err)
+            Right info -> Right $ accountBalances info
 
     executeOrder (BinanceExchange url _ apiKey apiSecret) step = do
         let symbol = T.unpack $ unSymbol $ pairToSymbol (stepPair step)

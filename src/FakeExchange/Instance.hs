@@ -7,7 +7,8 @@ module FakeExchange.Instance
 
 import Exchange.Interface
 import Bot.Domain
-  ( CommissionRate(..)
+  ( Asset(..)
+  , CommissionRate(..)
   , MarketSnapshot(..)
   , OrderSide(..)
   , OrderStep(..)
@@ -26,7 +27,8 @@ import qualified Data.Map.Strict as Map
 import Data.Time.Clock (UTCTime, getCurrentTime)
 
 data FakeExchangeState = FakeExchangeState
-  { fesQuotes :: Map Pair PairQuote
+  { fesQuotes   :: Map Pair PairQuote
+  , fesBalances :: Map Asset Double
   }
 
 newtype FakeExchange = FakeExchange
@@ -40,6 +42,10 @@ instance Exchange FakeExchange where
     FakeExchangeState{..} <- readIORef ref
     let pairs = generateAllPairs assets
     return $ marketSnapshotFromBook fesQuotes pairs
+
+  fetchBalances (FakeExchange ref) = liftIO $ do
+    FakeExchangeState{..} <- readIORef ref
+    return $ Right fesBalances
 
   executeOrder (FakeExchange ref) step = liftIO $ do
     FakeExchangeState{..} <- readIORef ref

@@ -90,10 +90,23 @@ executeDecision config exchange snapshot (DoTrade opp) st =
 
 -- | Orquesta un ciclo completo: detección, decisión, ejecución y notificación.
 -- Devuelve el nuevo estado del bot para ser persistido.
+resolveTradeAmount :: Config -> Either ExchangeError (Map Asset Double) -> Double
+resolveTradeAmount config (Right bals) = min (cfgMaxTradeUSDT config) (M.findWithDefault 0 USDT bals)
+resolveTradeAmount config (Left _)     = cfgMaxTradeUSDT config
+
+logBalanceResult :: Either ExchangeError (Map Asset Double) -> Double -> IO ()
+logBalanceResult (Left err) _   = putStrLn $ "Warning: no se pudo obtener balance: " ++ show err
+logBalanceResult (Right bals) amt =
+    putStrLn $ "Balance USDT disponible: " ++ show (M.findWithDefault 0 USDT bals)
+            ++ " | Monto a operar: " ++ show amt
+
 handleSnapshot :: Config -> AppExchange -> MarketSnapshot -> BotState -> IO BotState
 handleSnapshot config exchange snapshot st = do
+    balancesResult  <- fetchBalances exchange
+    let effectiveAmount = resolveTradeAmount config balancesResult
+    logBalanceResult balancesResult effectiveAmount
     let paths    = allTriangularPaths tradingAssets
-        amountIn = AssetQty USDT (cfgMaxTradeUSDT config)
+        amountIn = AssetQty USDT effectiveAmount
         opps     = detectOpportunities paths snapshot amountIn
         decision = makeDecision (cfgMinProfit config) opps
     putStrLn $ "\n" ++ formatDecision decision

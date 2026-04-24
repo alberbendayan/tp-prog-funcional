@@ -19,6 +19,7 @@ data AppExchange = forall e. Exchange e => AppExchange e
 instance Exchange AppExchange where
     checkConnectivity (AppExchange e) = checkConnectivity e
     fetchMarketSnapshot (AppExchange e) = fetchMarketSnapshot e
+    fetchBalances (AppExchange e) = fetchBalances e
     executeOrder (AppExchange e) = executeOrder e
 
 configureAppExchange :: Config -> IO AppExchange

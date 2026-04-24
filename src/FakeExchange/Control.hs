@@ -7,12 +7,13 @@ module FakeExchange.Control
   , modifyFakeQuotes
   , setPairQuote
   , defaultDemoQuotes
+  , defaultDemoBalances
   , newDemoFakeExchange
   ) where
 
 import FakeExchange.Instance
 import Bot.Domain (Asset(..), Pair(..), Price(..), PairQuote(..), CommissionRate(..))
-import Data.IORef (newIORef, readIORef, writeIORef, modifyIORef')
+import Data.IORef (newIORef, readIORef, modifyIORef')
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 
@@ -53,19 +54,35 @@ validSupportingPairs = Map.fromList
   , (Pair USDT BNB, mkDemoPairQuote 0.00198 0.00202)
   ]
 
+defaultDemoBalances :: Map Asset Double
+defaultDemoBalances = Map.fromList
+  [ (USDT, 10000.0)
+  , (BTC,  0.1)
+  , (ETH,  2.0)
+  , (BNB,  50.0)
+  ]
+
 newFakeExchange :: Map Pair PairQuote -> IO FakeExchange
 newFakeExchange initial =
-  FakeExchange <$> newIORef (FakeExchangeState initial)
+  FakeExchange <$> newIORef (FakeExchangeState initial Map.empty)
 
 newDemoFakeExchange :: IO FakeExchange
-newDemoFakeExchange = newFakeExchange defaultDemoQuotes
+newDemoFakeExchange = do
+    fe <- newFakeExchange defaultDemoQuotes
+    modifyFakeQuotes fe id  -- no-op, solo para reusar la función
+    writeFakeBalances fe defaultDemoBalances
+    return fe
+
+writeFakeBalances :: FakeExchange -> Map Asset Double -> IO ()
+writeFakeBalances (FakeExchange ref) bals =
+  modifyIORef' ref $ \s -> s { fesBalances = bals }
 
 readFakeQuotes :: FakeExchange -> IO (Map Pair PairQuote)
 readFakeQuotes (FakeExchange ref) = fmap fesQuotes $ readIORef ref
 
 writeFakeQuotes :: FakeExchange -> Map Pair PairQuote -> IO ()
 writeFakeQuotes (FakeExchange ref) qs =
-  writeIORef ref FakeExchangeState { fesQuotes = qs }
+  modifyIORef' ref $ \s -> s { fesQuotes = qs }
 
 modifyFakeQuotes :: FakeExchange -> (Map Pair PairQuote -> Map Pair PairQuote) -> IO ()
 modifyFakeQuotes (FakeExchange ref) f =

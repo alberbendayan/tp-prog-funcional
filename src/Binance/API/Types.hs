@@ -23,6 +23,8 @@ import Bot.Domain (Asset(..), Pair(..), Price(..), MarketOrderQty(..))
 import Data.Aeson
 import Data.Text (Text)
 import qualified Data.Text as T
+import Data.Map.Strict (Map)
+import qualified Data.Map.Strict as Map
 import GHC.Generics
 
 newtype Symbol = Symbol { unSymbol :: Text }
@@ -80,14 +82,44 @@ instance FromJSON TradeFee where
     taker <- o .: "takerCommission"
     return $ TradeFee sym taker
 
+data AssetBalance = AssetBalance
+    { abAsset :: Text
+    , abFree  :: Double
+    } deriving (Show, Generic)
+
+instance FromJSON AssetBalance where
+  parseJSON = withObject "AssetBalance" $ \o -> do
+    asset   <- o .: "asset"
+    freeStr <- o .: "free"
+    free <- case reads (T.unpack freeStr) of
+      [(d, "")] -> return d
+      _         -> fail "Invalid free balance string"
+    return $ AssetBalance asset free
+
+parseKnownAsset :: Text -> Maybe Asset
+parseKnownAsset "BTC"  = Just BTC
+parseKnownAsset "ETH"  = Just ETH
+parseKnownAsset "USDT" = Just USDT
+parseKnownAsset "BNB"  = Just BNB
+parseKnownAsset _      = Nothing
+
 -- | takerCommission en basis points (ej. 10 = 0.001)
 data AccountInfo = AccountInfo
     { accountTakerCommission :: Int
+    , accountBalances        :: Map Asset Double
     } deriving (Show, Eq, Generic)
 
 instance FromJSON AccountInfo where
-  parseJSON = withObject "AccountInfo" $ \o ->
-    AccountInfo <$> o .: "takerCommission"
+  parseJSON = withObject "AccountInfo" $ \o -> do
+    taker   <- o .: "takerCommission"
+    rawBals <- o .: "balances"
+    let knownBals = Map.fromList
+          [ (a, abFree b)
+          | b <- rawBals
+          , Just a <- [parseKnownAsset (abAsset b)]
+          , abFree b > 0
+          ]
+    return $ AccountInfo taker knownBals
 
 data OrderFill = OrderFill
     { ofPrice           :: Price
