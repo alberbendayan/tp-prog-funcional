@@ -32,6 +32,7 @@ module Bot.Domain
   , RoundResult(..)
   , roundPnl
   , roundPnlAmount
+  , PersistedRound(..)
   ) where
 
 import Data.Aeson (FromJSON(..), ToJSON(..), ToJSONKey(..), FromJSONKey(..), Value(..))
@@ -208,3 +209,15 @@ roundPnl r
 
 roundPnlAmount :: RoundResult -> Either String Double
 roundPnlAmount r = qtyAmount <$> roundPnl r
+
+data PersistedRound = PersistedRound
+  { prTimestamp :: UTCTime
+  , prPairs     :: String
+  , prAmountIn  :: Double
+  , prAmountOut :: Double
+  , prPnlUsdt   :: Double
+  , prStatus    :: String
+  } deriving (Show, Eq, Generic)
+
+instance FromJSON PersistedRound
+instance ToJSON PersistedRound

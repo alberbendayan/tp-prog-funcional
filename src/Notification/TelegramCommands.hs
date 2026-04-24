@@ -9,12 +9,14 @@ module Notification.TelegramCommands
     ) where
 
 import Bot.Config (Config(..))
-import Bot.Domain (Asset(..), RoundResult(..), RoundStatus(..))
+import Bot.Domain (Asset(..), RoundResult(..), RoundStatus(..), PersistedRound(..))
 import Bot.Runtime (BotState(..))
+import Text.Read (readMaybe)
 import Notification.Telegram (sendTelegramMessage)
 import Control.Exception (SomeException, catch)
 import Data.Aeson (FromJSON(..), genericParseJSON, defaultOptions, fieldLabelModifier)
 import Data.Char (toLower)
+import Data.List (isPrefixOf, intercalate)
 import Data.IORef (IORef, readIORef)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -92,13 +94,21 @@ fetchUpdates config offset = runReq defaultHttpConfig $ do
 dispatchCommand :: Config -> BotState -> UTCTime -> String -> Int -> IO ()
 dispatchCommand config st startTime cmd chatId = do
     now <- getCurrentTime
-    let cmd' = map toLower . takeWhile (/= ' ') . dropWhile (== '/') $ cmd
-        reply = case cmd' of
+    let parts   = words (dropWhile (== '/') cmd)
+        rawCmd  = if null parts then "" else head parts
+        cmdWord = map toLower . takeWhile (/= '@') $ rawCmd
+        argN    = case parts of
+                    (_:arg:_) -> case readMaybe arg of
+                                    Just x  -> max 1 (min 20 x)
+                                    Nothing -> 5
+                    _         -> 5
+        reply = case cmdWord of
                     "balance"     -> fmtBalance (bsLastFetchedBalances st)
                     "status"      -> fmtStatus st startTime now
                     "pnl"         -> fmtPnl (bsPnlAccumulated st) (bsRoundCount st)
                     "open_orders" -> fmtOpenOrders (length (bsOpenOrders st))
-                    _             -> "Comandos disponibles: /balance /status /pnl /open_orders"
+                    "history"     -> fmtHistory (bsTradeHistory st) argN
+                    _             -> "Comandos:\n/balance\n/status\n/pnl\n/open_orders\n/history [N]"
         cfgForChat = config { cfgTelegramChatId = show chatId }
     sendTelegramMessage cfgForChat reply >>= \case
         Left err -> putStrLn $ "Error respondiendo comando Telegram: " ++ show err
@@ -126,7 +136,6 @@ handleUpdate config stateRef startTime upd =
             Nothing  -> pure ()
             Just txt -> do
                 let cid = tgChatId (tgMsgChat msg)
-                putStrLn $ "Chat ID recibido: " ++ show cid
                 st <- readIORef stateRef
                 dispatchCommand config st startTime txt cid
 
@@ -171,6 +180,39 @@ fmtPnl pnl rounds
 fmtOpenOrders :: Int -> String
 fmtOpenOrders 0 = "Sin ordenes abiertas."
 fmtOpenOrders n = show n ++ " orden(es) en curso."
+
+fmtHistory :: [PersistedRound] -> Int -> String
+fmtHistory [] _ = "Sin operaciones registradas aun."
+fmtHistory rounds n =
+    let recent  = reverse (take n (reverse rounds))
+        shown   = min n (length rounds)
+        hdr     = "Ultimas " ++ show shown ++ " operacion(es):"
+        entries = zipWith fmtEntry [1..] recent
+    in unlines $ hdr : "" : intercalate [""] entries
+  where
+    fmtEntry i pr =
+        [ show (i :: Int) ++ ". [" ++ prStatus pr ++ "]"
+        , "   Ruta:    " ++ prettifyPairs (prPairs pr)
+        , "   Entrada: " ++ fixed 2 (prAmountIn pr)  ++ " USDT"
+        , "   Salida:  " ++ fixed 2 (prAmountOut pr) ++ " USDT"
+        , "   PnL:     " ++ signedFixed (prPnlUsdt pr) ++ " USDT"
+        ]
+
+prettifyPairs :: String -> String
+prettifyPairs s = intercalate " \x2192 " (map parseSingle (splitOn " -> " s))
+  where
+    parseSingle p = case words p of
+        (_:_:_:b:_:_:q:_) -> filter (/= ',') b ++ "/" ++ filter (/= '}') q
+        _                   -> p
+    splitOn _ [] = [""]
+    splitOn sep lst@(x:xs)
+        | sep `isPrefixOf` lst = "" : splitOn sep (drop (length sep) lst)
+        | otherwise            = case splitOn sep xs of { (y:ys) -> (x:y):ys; [] -> [[x]] }
+
+signedFixed :: Double -> String
+signedFixed x
+    | x >= 0    = "+" ++ fixed 2 x
+    | otherwise = fixed 2 x
 
 fmtUptime :: (RealFrac a) => a -> String
 fmtUptime secs =

@@ -42,6 +42,7 @@ data BotState = BotState
   , bsPnlAccumulated       :: Map Asset Double
   , bsErrorsPerRound       :: [Int]
   , bsLastFetchedBalances  :: Map Asset Double
+  , bsTradeHistory         :: [PersistedRound]
   }
 
 initialBotState :: BotState
@@ -54,6 +55,7 @@ initialBotState = BotState
   , bsPnlAccumulated      = M.empty
   , bsErrorsPerRound      = []
   , bsLastFetchedBalances = M.empty
+  , bsTradeHistory        = []
   }
 
 data BotError

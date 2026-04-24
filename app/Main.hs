@@ -108,6 +108,27 @@ logBalanceResult (Right bals) amt =
     putStrLn $ "Balance USDT disponible: " ++ show (M.findWithDefault 0 USDT bals)
             ++ " | Monto a operar: " ++ show amt
 
+mkPersistedRound :: RoundResult -> IO PersistedRound
+mkPersistedRound rr = do
+    now <- getCurrentTime
+    let ts     = case roundFills rr of { (f:_) -> fillTime f; [] -> now }
+        pairs  = intercalate " -> " (map (show . fillPair) (roundFills rr))
+        amtIn  = qtyAmount (roundAmountIn rr)
+        amtOut = qtyAmount (roundAmountOut rr)
+        pnl    = amtOut - amtIn
+        status = case roundStatus rr of
+                    RoundSuccess    -> "exitosa"
+                    RoundFailed _   -> "fallida"
+                    RoundPartial _  -> "parcial"
+    return PersistedRound
+        { prTimestamp = ts
+        , prPairs     = if null pairs then "N/A" else pairs
+        , prAmountIn  = amtIn
+        , prAmountOut = amtOut
+        , prPnlUsdt   = pnl
+        , prStatus    = status
+        }
+
 handleSnapshot :: Config -> AppExchange -> MarketSnapshot -> BotState -> IORef BotState -> UTCTime -> IO BotState
 handleSnapshot config exchange snapshot st stateRef startTime = do
     balancesResult  <- fetchBalances exchange
@@ -120,7 +141,13 @@ handleSnapshot config exchange snapshot st stateRef startTime = do
     putStrLn $ "\n" ++ formatDecision decision
     (postTradeReport, newSt) <- executeDecision config exchange snapshot decision st stateRef startTime
     let fetchedBals = either (const M.empty) id balancesResult
-        newSt' = newSt { bsLastFetchedBalances = fetchedBals }
+    newSt' <- case bsLastRoundResult newSt of
+        Nothing -> return newSt { bsLastFetchedBalances = fetchedBals }
+        Just rr -> do
+            pr <- mkPersistedRound rr
+            let history = bsTradeHistory newSt ++ [pr]
+                trimmed = drop (max 0 (length history - 100)) history
+            return newSt { bsLastFetchedBalances = fetchedBals, bsTradeHistory = trimmed }
     when (cfgTelegramEnabled config) $ do
         sendTelegramMessage config (formatDecision decision) >>=
             either
