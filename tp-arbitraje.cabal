@@ -46,6 +46,7 @@ library
         Exchange.AppExchange
         Bot.Config
         Bot.Domain
+        Bot.Pricing
         Bot.Arbitraje
         Bot.Runtime
         Bot.Persist

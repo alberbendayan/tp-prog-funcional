@@ -32,15 +32,15 @@ allTriangularPaths assets =
     pathsForOrder _         = []
 
 data SimulatedStep = SimulatedStep
-    { simulatedAmountOut   :: AssetQty        -- cuánto recibimos tras el paso
-    , simulatedBinancePair :: Pair            -- el par que existe en Binance (puede ser el inverso del lógico)
-    , simulatedOrderSide   :: OrderSide       -- Buy o Sell según la orientación del par
-    , simulatedQuantity    :: MarketOrderQty  -- parámetro a enviar a Binance
+    { simulatedAmountOut   :: AssetQty
+    , simulatedBinancePair :: Pair
+    , simulatedOrderSide   :: OrderSide
+    , simulatedQuantity    :: MarketOrderQty
     }
 
 simulateOneStep
     :: Map.Map Pair PairQuote
-    -> Pair  
+    -> Pair
     -> AssetQty
     -> Maybe SimulatedStep
 simulateOneStep quotes logicalPair (AssetQty asset qty)
@@ -79,8 +79,6 @@ simulatePath snapshot path amountIn = do
   where
     quotes = snapshotQuotes snapshot
 
--- | Lookup step orientation without liquidity check.
--- Returns (quote, side, output asset).
 stepLookup :: Map.Map Pair PairQuote -> Pair -> Asset -> Maybe (PairQuote, OrderSide, Asset)
 stepLookup quotes logicalPair asset
     | asset == base logicalPair
@@ -92,18 +90,14 @@ stepLookup quotes logicalPair asset
         Just (q, Buy, base logicalPair)
     | otherwise = Nothing
 
--- | Output per unit of input (including fee).
 stepRate :: PairQuote -> OrderSide -> Double
 stepRate q Sell = unPrice (bidPrice q) * (1 - unCommissionRate (pairCommission q))
 stepRate q Buy  = (1 / unPrice (askPrice q)) * (1 - unCommissionRate (pairCommission q))
 
--- | Max input (in input-asset units) given top-of-book liquidity.
 stepMaxInput :: PairQuote -> OrderSide -> Double
 stepMaxInput q Sell = bidQty q
 stepMaxInput q Buy  = askQty q * unPrice (askPrice q)
 
--- | Max amountIn that fits within all 3 steps' liquidity.
--- Converts each step's constraint back to initial-asset units via cumulative rates.
 maxAmountForPath :: Map.Map Pair PairQuote -> TriangularPath -> AssetQty -> Maybe Double
 maxAmountForPath quotes path (AssetQty startAsset _) = do
     (q1, side1, asset2) <- stepLookup quotes (arbPair1 path) startAsset

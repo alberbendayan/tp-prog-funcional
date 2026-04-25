@@ -42,9 +42,9 @@ sendTelegramMessage config message = do
     return $ handleTelegramResult result
 
 buildTelegramUrl :: String -> Url 'Https
-buildTelegramUrl token = 
-    https "api.telegram.org" 
-        /: "bot" <> T.pack token 
+buildTelegramUrl token =
+    https "api.telegram.org"
+        /: "bot" <> T.pack token
         /: "sendMessage"
 
 sendTelegramRequest :: Config -> String -> IO TelegramResponse
@@ -56,10 +56,10 @@ sendTelegramRequest config message = do
             { chat_id = chatId
             , text = message
             }
-    
+
     response <- runReq defaultHttpConfig $ do
         req POST url (ReqBodyJson payload) jsonResponse mempty
-    
+
     return (responseBody response :: TelegramResponse)
 
 handleTelegramResult :: Either SomeException TelegramResponse -> Either TelegramError ()
@@ -76,7 +76,7 @@ formatDecision (DoTrade opp) =
         p2   = arbPair2 path
         p3   = arbPair3 path
         perc = fixed 2 (arbProfitPerc opp)
-        absP = fmtAmount USDT (arbProfitAbs opp)
+        absP = fmtAmount (qtyAsset amountIn) (arbProfitAbs opp) ++ " " ++ show (qtyAsset amountIn)
         amountIn = arbAmountIn opp
         amountOut = arbAmountOut opp
     in unlines
@@ -89,7 +89,7 @@ formatDecision (DoTrade opp) =
         , "  Ciclo: " ++ fmtPair p1 ++ " → " ++ fmtPair p2 ++ " → " ++ fmtPair p3
         , ""
         , "Ganancia estimada:"
-        , "  " ++ perc ++ "% (" ++ absP ++ " USDT)"
+        , "  " ++ perc ++ "% (" ++ absP ++ ")"
         , ""
         , "Entrada:"
         , "  " ++ fmtAmount (qtyAsset amountIn) (qtyAmount amountIn) ++ " " ++ show (qtyAsset amountIn)
@@ -101,8 +101,11 @@ formatDecision (DoTrade opp) =
 formatRoundResult :: RoundResult -> String
 formatRoundResult rr =
     let statusLine = "Estado: " ++ show (roundStatus rr)
-        pnlLine    = "PnL neto operatoria: " ++ showNetPnl rr
-        pnlPctLine = "PnL: " ++ showNetPnlPercent rr
+        pnlStartLine = "PnL neto (moneda inicio): " ++ showNetPnlStart rr
+        pnlLine    = "PnL neto (USDT): " ++ showNetPnl rr
+        pnlPctLine =
+            "PnL: " ++ showNetPnlPercent rr
+        operationSizeLine = "Tamaño operación: " ++ showOperationSize rr
         deltasBlock = formatAssetDeltasBlock rr
         stepsBlock  = case roundFills rr of
             []    -> "Pasos:\n  • sin ejecuciones"
@@ -112,8 +115,11 @@ formatRoundResult rr =
         , ""
         , statusLine
         , ""
+        , pnlStartLine
         , pnlLine
         , pnlPctLine
+        , ""
+        , operationSizeLine
         , ""
         , deltasBlock
         , ""
@@ -124,13 +130,24 @@ showNetPnl :: RoundResult -> String
 showNetPnl rr =
     signedAmountByAsset USDT (roundNetPnlUsdt rr) ++ " USDT"
 
+showNetPnlStart :: RoundResult -> String
+showNetPnlStart rr =
+    let a = qtyAsset (roundAmountIn rr)
+    in signedAmountByAsset a (roundNetPnlStart rr) ++ " " ++ show a
+
+showOperationSize :: RoundResult -> String
+showOperationSize rr =
+    fmtAmount (qtyAsset amtIn) (qtyAmount amtIn) ++ " " ++ show (qtyAsset amtIn)
+  where
+    amtIn = roundAmountIn rr
+
 showNetPnlPercent :: RoundResult -> String
 showNetPnlPercent rr
     | opSize <= 0 = "N/A"
     | otherwise   = signedPercent pct
   where
     opSize = qtyAmount (roundAmountIn rr)
-    pct = 100 * roundNetPnlUsdt rr / opSize
+    pct = 100 * roundNetPnlStart rr / opSize
 
 formatAssetDeltasBlock :: RoundResult -> String
 formatAssetDeltasBlock rr

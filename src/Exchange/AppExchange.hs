@@ -11,9 +11,6 @@ import Exchange.Interface
 import Binance.API.Instance (BinanceExchange(..))
 import FakeExchange.Control (newDemoFakeExchange)
 
--- | Cualquier implementación de 'Exchange' (Binance, Fake, OKX, …) en un solo tipo.
--- Nuevo exchange: instancia 'Exchange', suma un caso en 'configureAppExchange' y listo;
--- esta instancia no crece con cada proveedor.
 data AppExchange = forall e. Exchange e => AppExchange e
 
 instance Exchange AppExchange where

@@ -7,6 +7,7 @@ import Bot.Domain
 import Bot.Arbitraje
 import Bot.Runtime
 import Bot.Persist
+import Bot.Pricing (assetUsdtRateWhenSelling)
 import Exchange.Interface
 import Exchange.AppExchange (AppExchange, configureAppExchange)
 import Notification.Telegram
@@ -26,8 +27,6 @@ import qualified Data.Map.Strict as M
 tradingAssets :: [Asset]
 tradingAssets = [BTC, ETH, BNB, USDT]
 
--- | Intenta construir y validar el plan de ejecuci?n a partir de una oportunidad.
--- Devuelve Left con un mensaje de error si alguno de los pasos falla.
 buildValidPlan :: MarketSnapshot -> ArbOpportunity -> Either String ExecutionPlan
 buildValidPlan snapshot opp =
     case opportunityToExecutionPlan snapshot opp of
@@ -38,11 +37,15 @@ buildValidPlan snapshot opp =
                 Left liqErr -> Left $ "Liquidez insuficiente para ejecutar: " ++ liqErr
                 Right ()    -> Right valid
 
--- | Imprime el resultado de una ronda de trading.
 printRoundResult :: RoundResult -> IO ()
 printRoundResult rr = do
     putStrLn $ "Status: " ++ show (roundStatus rr)
-    putStrLn $ "PnL neto operatoria: " ++ show (roundNetPnlUsdt rr) ++ " USDT"
+    putStrLn $
+        "PnL neto (moneda inicio): "
+            ++ show (roundNetPnlStart rr)
+            ++ " "
+            ++ show (qtyAsset (roundAmountIn rr))
+    putStrLn $ "PnL neto (USDT): " ++ show (roundNetPnlUsdt rr)
 
 formatBotStateSummary :: BotState -> String
 formatBotStateSummary st =
@@ -68,8 +71,6 @@ hasLastRoundResult st = case bsLastRoundResult st of
   Nothing -> False
   Just _  -> True
 
--- | Ejecuta la decisi?n del bot.
--- Toma el estado actual y devuelve el reporte y el nuevo estado.
 executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> BotState -> IORef BotState -> UTCTime -> IO (Maybe String, BotState)
 executeDecision _      _        _        NoTrade       st _        _         = return (Nothing, st)
 executeDecision config exchange snapshot (DoTrade opp) st stateRef startTime =
@@ -91,17 +92,33 @@ executeDecision config exchange snapshot (DoTrade opp) st stateRef startTime =
                     putStrLn (formatBotStateSummary newSt)
                     return (Just (formatRoundResult rr), newSt)
 
--- | Orquesta un ciclo completo: detecci?n, decisi?n, ejecuci?n y notificaci?n.
--- Devuelve el nuevo estado del bot para ser persistido.
-resolveTradeAmount :: Config -> Either ExchangeError (Map Asset Double) -> Double
-resolveTradeAmount config (Right bals) = min (cfgMaxTradeUSDT config) (M.findWithDefault 0 USDT bals)
-resolveTradeAmount config (Left _)     = cfgMaxTradeUSDT config
 
-logBalanceResult :: Either ExchangeError (Map Asset Double) -> Double -> IO ()
-logBalanceResult (Left err) _   = putStrLn $ "Warning: no se pudo obtener balance: " ++ show err
-logBalanceResult (Right bals) amt =
-    putStrLn $ "Balance USDT disponible: " ++ show (M.findWithDefault 0 USDT bals)
-            ++ " | Monto a operar: " ++ show amt
+buildCandidateAmounts :: MarketSnapshot -> Double -> Map Asset Double -> [AssetQty]
+buildCandidateAmounts snapshot maxUsdtNotional bals =
+    [ AssetQty asset qty
+    | asset <- tradingAssets
+    , let bal = M.findWithDefault 0 asset bals
+    , bal > 1e-12
+    , Right rate <- [assetUsdtRateWhenSelling snapshot asset]
+    , rate > 0
+    , let qtyMaxNotional = maxUsdtNotional / rate
+    , let qty = min bal qtyMaxNotional
+    , qty > 1e-12
+    ]
+
+logCandidateAmounts :: [AssetQty] -> IO ()
+logCandidateAmounts [] =
+    putStrLn "Montos candidatos: ninguno (sin balance o sin cotización a USDT)."
+logCandidateAmounts xs =
+    putStrLn $ "Montos candidatos (tope notional USDT por activo): " ++ intercalate ", " (map fmtQty xs)
+  where
+    fmtQty (AssetQty a q) = show q ++ " " ++ show a
+
+logBalanceResult :: Either ExchangeError (Map Asset Double) -> IO ()
+logBalanceResult (Left err) =
+    putStrLn $ "Warning: no se pudo obtener balance: " ++ show err
+logBalanceResult (Right bals) =
+    putStrLn $ "Balances: " ++ formatAssetMap bals
 
 mkPersistedRound :: RoundResult -> IO PersistedRound
 mkPersistedRound rr = do
@@ -127,11 +144,14 @@ mkPersistedRound rr = do
 handleSnapshot :: Config -> AppExchange -> MarketSnapshot -> BotState -> IORef BotState -> UTCTime -> IO BotState
 handleSnapshot config exchange snapshot st stateRef startTime = do
     balancesResult  <- fetchBalances exchange
-    let effectiveAmount = resolveTradeAmount config balancesResult
-    logBalanceResult balancesResult effectiveAmount
-    let paths    = allTriangularPaths tradingAssets
-        amountIn = AssetQty USDT effectiveAmount
-        opps     = detectOpportunities paths snapshot amountIn
+    logBalanceResult balancesResult
+    let paths = allTriangularPaths tradingAssets
+        bals = either (const M.empty) id balancesResult
+        maxUsdt = cfgMaxTradeUSDT config
+        candidates = buildCandidateAmounts snapshot maxUsdt bals
+    logCandidateAmounts candidates
+    let opps =
+          concatMap (\amt -> detectOpportunities paths snapshot amt) candidates
         decision = makeDecision (cfgMinProfit config) opps
     putStrLn $ "\n" ++ formatDecision decision
     (postTradeReport, newSt) <- executeDecision config exchange snapshot decision st stateRef startTime

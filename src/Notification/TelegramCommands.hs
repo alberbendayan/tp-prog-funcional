@@ -26,9 +26,6 @@ import Network.HTTP.Req
 import Numeric (showFFloat)
 import qualified Data.Text as T
 
--- ---------------------------------------------------------------------------
--- Tipos JSON de Telegram
--- ---------------------------------------------------------------------------
 
 data TgChat = TgChat { tgChatId :: Int } deriving (Show, Generic)
 
@@ -72,9 +69,6 @@ instance FromJSON TgUpdatesResponse where
             "tgRespResult" -> "result"
             x              -> x }
 
--- ---------------------------------------------------------------------------
--- Polling
--- ---------------------------------------------------------------------------
 
 fetchUpdates :: Config -> Int -> IO [TgUpdate]
 fetchUpdates config offset = runReq defaultHttpConfig $ do
@@ -87,9 +81,6 @@ fetchUpdates config offset = runReq defaultHttpConfig $ do
     let body = responseBody resp :: TgUpdatesResponse
     return $ if tgRespOk body then tgRespResult body else []
 
--- ---------------------------------------------------------------------------
--- Dispatch
--- ---------------------------------------------------------------------------
 
 dispatchCommand :: Config -> BotState -> UTCTime -> String -> Int -> IO ()
 dispatchCommand config st startTime cmd chatId = do
@@ -114,9 +105,6 @@ dispatchCommand config st startTime cmd chatId = do
         Left err -> putStrLn $ "Error respondiendo comando Telegram: " ++ show err
         Right _  -> pure ()
 
--- ---------------------------------------------------------------------------
--- Loop del listener
--- ---------------------------------------------------------------------------
 
 runCommandListener :: Config -> IORef BotState -> UTCTime -> IO ()
 runCommandListener config stateRef startTime = go 0
@@ -139,9 +127,6 @@ handleUpdate config stateRef startTime upd =
                 st <- readIORef stateRef
                 dispatchCommand config st startTime txt cid
 
--- ---------------------------------------------------------------------------
--- Formatters
--- ---------------------------------------------------------------------------
 
 fmtBalance :: Map Asset Double -> String
 fmtBalance bals

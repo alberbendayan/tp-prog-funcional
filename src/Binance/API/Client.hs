@@ -23,7 +23,7 @@ import Data.Proxy (Proxy)
 import Data.Time.Clock.POSIX (getPOSIXTime)
 import Network.HTTP.Req
 
-data BinanceError 
+data BinanceError
     = NetworkError String
     | ParseError String
     | APIError Int String
@@ -38,10 +38,10 @@ ping baseUrl = do
         Left err -> return $ Left err
         Right _ -> return $ Right True
 
-makeJsonGetRequest :: FromJSON a 
-                   => String -> Text -> [(Text, Text)] 
+makeJsonGetRequest :: FromJSON a
+                   => String -> Text -> [(Text, Text)]
                    -> IO (Either BinanceError a)
-makeJsonGetRequest baseUrl endpoint params = 
+makeJsonGetRequest baseUrl endpoint params =
     fmap (fmap responseBody) $ makeGetRequest baseUrl endpoint params jsonResponse
 
 getBookTicker :: String -> Text -> IO (Either BinanceError BookTicker)
@@ -66,17 +66,13 @@ getTradeFees baseUrl apiKey apiSecret = do
         params   = [("timestamp", T.pack ts), ("signature", T.pack sig)]
     makeAuthJsonGetRequest baseUrl tradeFeeEndpoint params apiKey
 
--- | Coloca una orden de mercado en Binance.
--- La cantidad se especifica con MarketOrderQty:
---   QtyBase  q → envía `quantity=q`       (típico para SELL del base).
---   QtyQuote q → envía `quoteOrderQty=q`  (típico para BUY: cuánto quote gastamos).
 placeMarketOrder
-    :: String          -- baseUrl
-    -> String          -- apiKey
-    -> String          -- apiSecret
-    -> Text            -- symbol (ej. "BTCUSDT")
-    -> Text            -- side: "BUY" | "SELL"
-    -> MarketOrderQty  -- cantidad y cómo especificarla
+    :: String
+    -> String
+    -> String
+    -> Text
+    -> Text
+    -> MarketOrderQty
     -> IO (Either BinanceError OrderResponse)
 placeMarketOrder baseUrl apiKey apiSecret symbol side marketQty = do
     posixTime <- getPOSIXTime
@@ -136,14 +132,14 @@ makeAuthGetRequest baseUrl endpoint params apiKey responseType = do
         Left (e :: SomeException) -> return $ Left $ NetworkError (show e)
         Right resp                -> return $ Right resp
 
-makeGetRequest :: HttpResponse response 
+makeGetRequest :: HttpResponse response
                => String -> Text -> [(Text, Text)] -> Proxy response -> IO (Either BinanceError response)
 makeGetRequest baseUrl endpoint params responseType = do
     result <- try $ runReq defaultHttpConfig $ do
         let (url, reqParams) = mkRequest baseUrl endpoint params
         response <- req GET url NoReqBody responseType reqParams
         return response
-    
+
     case result of
         Left (e :: SomeException) -> return $ Left $ NetworkError (show e)
 

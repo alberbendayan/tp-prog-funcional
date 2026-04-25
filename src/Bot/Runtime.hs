@@ -16,6 +16,7 @@ module Bot.Runtime
 
 import Bot.Config (Config)
 import Bot.Domain
+import Bot.Pricing (assetUsdtRateWhenBuying, assetUsdtRateWhenSelling)
 import Exchange.Interface (Exchange(..), ExchangeError(..))
 import Control.Monad.Reader (ReaderT, MonadReader, ask, runReaderT)
 import Control.Monad.State.Strict (StateT, MonadState, runStateT, modify)
@@ -95,12 +96,15 @@ buildRoundResult snapshot amtIn fills errs =
     in do
       validateSameAsset amtIn amtOut
       netPnl <- netPnlUsdtFromDeltas snapshot deltas
+      let startAsset = qtyAsset amtIn
+          netStart = M.findWithDefault 0 startAsset deltas
       Right RoundResult
-        { roundFills      = fills
-        , roundAmountIn   = amtIn
-        , roundAmountOut  = amtOut
-        , roundNetPnlUsdt = netPnl
-        , roundStatus     = buildRoundStatusFromErrors errs
+        { roundFills       = fills
+        , roundAmountIn    = amtIn
+        , roundAmountOut   = amtOut
+        , roundNetPnlStart = netStart
+        , roundNetPnlUsdt  = netPnl
+        , roundStatus      = buildRoundStatusFromErrors errs
         }
 
 executeStepsSequentially
@@ -149,7 +153,7 @@ executeRound snapshot plan = do
     modify $ \s -> s { bsOpenOrders = steps }
     (fills, errs) <- executeStepsSequentially (envExchange env) steps []
     result <- case buildRoundResult snapshot amtIn fills errs of
-      Left err -> throwError (BotExecutionError ("No se pudo calcular PnL neto USDT: " ++ err))
+      Left err -> throwError (BotExecutionError ("No se pudo calcular PnL de la ronda: " ++ err))
       Right rr -> return rr
     modify $ updateStateWithRound result
     return result
@@ -170,7 +174,8 @@ mergeAssetMaps :: Map Asset Double -> Map Asset Double -> Map Asset Double
 mergeAssetMaps = M.unionWith (+)
 
 roundNetPnlMap :: RoundResult -> Map Asset Double
-roundNetPnlMap rr = M.singleton USDT (roundNetPnlUsdt rr)
+roundNetPnlMap rr =
+  M.singleton (qtyAsset (roundAmountIn rr)) (roundNetPnlStart rr)
 
 roundErrorCount :: RoundResult -> Int
 roundErrorCount rr =
@@ -197,37 +202,14 @@ netPnlUsdtFromDeltas snapshot deltas =
     sum <$> traverse valueEntry (M.toList deltas)
   where
     valueEntry :: (Asset, Double) -> Either String Double
-    valueEntry (asset, deltaQty) = do
-      rate <- assetUsdtRate snapshot asset
-      Right (deltaQty * rate)
-
-assetUsdtRate :: MarketSnapshot -> Asset -> Either String Double
-assetUsdtRate _ USDT = Right 1
-assetUsdtRate snapshot asset =
-    directRate `orElse` inverseRate
-  where
-    quotes = snapshotQuotes snapshot
-    directPair = Pair asset USDT
-    inversePair = Pair USDT asset
-
-    directRate = case M.lookup directPair quotes of
-      Just q  -> Right (midPrice q)
-      Nothing -> Left $ "Sin cotización directa a USDT para " ++ show asset
-
-    inverseRate = case M.lookup inversePair quotes of
-      Just q ->
-        let mid = midPrice q
-        in if mid <= 0
-           then Left $ "Cotización inválida para " ++ show inversePair
-           else Right (1 / mid)
-      Nothing -> Left $ "Sin cotización inversa a USDT para " ++ show asset
-
-    orElse :: Either String a -> Either String a -> Either String a
-    orElse (Right x) _ = Right x
-    orElse (Left _) y  = y
-
-midPrice :: PairQuote -> Double
-midPrice q = (unPrice (bidPrice q) + unPrice (askPrice q)) / 2
+    valueEntry (asset, deltaQty)
+      | abs deltaQty <= 1e-18 = Right 0
+      | deltaQty > 0 = do
+          rate <- assetUsdtRateWhenSelling snapshot asset
+          Right (deltaQty * rate)
+      | otherwise = do
+          rate <- assetUsdtRateWhenBuying snapshot asset
+          Right (deltaQty * rate)
 
 validateSameAsset :: AssetQty -> AssetQty -> Either String ()
 validateSameAsset amtIn amtOut

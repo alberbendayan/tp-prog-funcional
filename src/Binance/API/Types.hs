@@ -1,10 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveGeneric #-}
 
--- | Tipos específicos del wire format de Binance. Los conceptos de mercado compartidos
--- ('Asset', 'Pair', 'Price', 'MarketOrderQty') viven en "Bot.Domain".
 module Binance.API.Types
-    ( -- Re-exportados desde Bot.Domain
+    (
       Asset(..)
     , Pair(..)
     , Price(..)
@@ -103,7 +101,6 @@ parseKnownAsset "USDT" = Just USDT
 parseKnownAsset "BNB"  = Just BNB
 parseKnownAsset _      = Nothing
 
--- | takerCommission en basis points (ej. 10 = 0.001)
 data AccountInfo = AccountInfo
     { accountTakerCommission :: Int
     , accountBalances        :: Map Asset Double

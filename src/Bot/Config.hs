@@ -10,7 +10,6 @@ import Data.Char (toLower)
 import System.Environment (lookupEnv)
 import Configuration.Dotenv (loadFile, defaultConfig)
 
--- | Proveedor de exchange ('BOT_EXCHANGE' en .env / entorno).
 data ExchangeKind
     = ExchangeKindBinance
     | ExchangeKindFake
@@ -41,7 +40,7 @@ data Config = Config
 loadConfig :: IO Config
 loadConfig = do
     _ <- loadFile defaultConfig
-    
+
     apiKey       <- getEnvOrDefault "BINANCE_API_KEY" "" id
     apiSecret    <- getEnvOrDefault "BINANCE_API_SECRET" "" id
     baseUrl      <- getEnvOrDefault "BINANCE_BASE_URL" "https://testnet.binance.vision" id

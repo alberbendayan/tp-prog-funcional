@@ -53,7 +53,6 @@ instance Exchange FakeExchange where
     now <- getCurrentTime
     atomicModifyIORef' ref (runOrderAgainstState now step)
 
--- | Libro completo para los pares pedidos, o primer par faltante.
 marketSnapshotFromBook :: Map Pair PairQuote -> [Pair] -> Either ExchangeError MarketSnapshot
 marketSnapshotFromBook book pairs =
   MarketSnapshot . Map.fromList <$> traverse pairEntry pairs
@@ -101,7 +100,6 @@ quoteForOrder book p =
     unknownPair x =
       ExchangeOrderError $ "FakeExchange: par desconocido " ++ show x
 
--- | Coherente con las fórmulas de 'Bot.Arbitraje.simulateOneStep'.
 syntheticFill :: OrderStep -> PairQuote -> UTCTime -> Either String Fill
 syntheticFill step pq now = mkSyntheticFill step pq now
 

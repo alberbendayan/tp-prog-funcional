@@ -3,7 +3,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
 module Bot.Domain
-  ( -- * Mercado (compartido entre exchanges)
+  (
     Asset(..)
   , Pair(..)
   , Price(..)
@@ -41,7 +41,6 @@ import qualified Data.Text as T
 import Data.Time.Clock (UTCTime)
 import GHC.Generics (Generic)
 
--- | Activo negociable (mismo dominio para cualquier exchange).
 data Asset = BTC | ETH | USDT | BNB
   deriving (Show, Eq, Ord)
 
@@ -70,7 +69,6 @@ instance FromJSONKey Asset where
     "BNB"  -> pure BNB
     s      -> fail $ "Asset desconocido como clave: " ++ T.unpack s
 
--- | Par base/cotización (ej. BTC respecto de USDT).
 data Pair = Pair { base :: Asset, quote :: Asset }
   deriving (Show, Eq, Ord)
 
@@ -91,8 +89,6 @@ data MarketOrderQty
 newtype CommissionRate = CommissionRate { unCommissionRate :: Double }
   deriving (Show, Eq, Ord, Generic)
 
--- | Quantity tagged with the asset it refers to.
--- | This makes units explicit when reading function signatures.
 data AssetQty = AssetQty
   { qtyAsset  :: Asset
   , qtyAmount :: Double
@@ -189,11 +185,12 @@ data RoundStatus
   deriving (Show, Eq, Generic)
 
 data RoundResult = RoundResult
-  { roundFills     :: [Fill]
-  , roundAmountIn  :: AssetQty
-  , roundAmountOut :: AssetQty
-  , roundNetPnlUsdt :: Double
-  , roundStatus    :: RoundStatus
+  { roundFills          :: [Fill]
+  , roundAmountIn       :: AssetQty
+  , roundAmountOut      :: AssetQty
+  , roundNetPnlStart    :: Double
+  , roundNetPnlUsdt     :: Double
+  , roundStatus         :: RoundStatus
   } deriving (Show, Eq, Generic)
 
 data PersistedRound = PersistedRound

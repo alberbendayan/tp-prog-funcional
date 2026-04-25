@@ -20,7 +20,6 @@ import qualified Data.Map.Strict as Map
 demoFee :: CommissionRate
 demoFee = CommissionRate 0.001
 
--- | Bid/ask con la comisión fija de la demo ('demoFee').
 mkDemoPairQuote :: Double -> Double -> PairQuote
 mkDemoPairQuote bid ask = PairQuote (Price bid) (Price ask) demoFee 1000.0 1000.0
 
@@ -69,10 +68,9 @@ newFakeExchange initial =
 newDemoFakeExchange :: IO FakeExchange
 newDemoFakeExchange = do
     fe <- newFakeExchange defaultDemoQuotes
-    modifyFakeQuotes fe id  -- no-op, solo para reusar la función
+    modifyFakeQuotes fe id
     writeFakeBalances fe defaultDemoBalances
     return fe
-
 writeFakeBalances :: FakeExchange -> Map Asset Double -> IO ()
 writeFakeBalances (FakeExchange ref) bals =
   modifyIORef' ref $ \s -> s { fesBalances = bals }
@@ -90,3 +88,4 @@ modifyFakeQuotes (FakeExchange ref) f =
 
 setPairQuote :: FakeExchange -> Pair -> PairQuote -> IO ()
 setPairQuote fe pair quote = modifyFakeQuotes fe (Map.insert pair quote)
+
