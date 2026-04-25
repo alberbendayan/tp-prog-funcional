@@ -44,3 +44,6 @@ result
 
 # Informe
 informe/
+
+.bot_state.json
+bot_state.json
