@@ -23,18 +23,20 @@ import Data.List (intercalate)
 import Data.Map.Strict (Map)
 import Data.Time.Clock            (UTCTime, getCurrentTime)
 import qualified Data.Map.Strict as M
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
 
 tradingAssets :: [Asset]
 tradingAssets = [BTC, ETH, BNB, USDT]
 
-buildValidPlan :: MarketSnapshot -> ArbOpportunity -> Either String ExecutionPlan
+buildValidPlan :: MarketSnapshot -> ArbOpportunity -> Either T.Text ExecutionPlan
 buildValidPlan snapshot opp =
     case opportunityToExecutionPlan snapshot opp of
-        Nothing   -> Left "No se pudo construir el plan de ejecuci?n"
+        Nothing   -> Left "No se pudo construir el plan de ejecución"
         Just plan -> case validateAndQuantizePlan plan of
-            Left planErr -> Left $ "Plan inv?lido tras cuantizaci?n: " ++ show planErr
+            Left planErr -> Left $ "Plan inválido tras cuantización: " <> T.pack (show planErr)
             Right valid  -> case validatePlanLiquidity snapshot valid of
-                Left liqErr -> Left $ "Liquidez insuficiente para ejecutar: " ++ liqErr
+                Left liqErr -> Left $ "Liquidez insuficiente para ejecutar: " <> liqErr
                 Right ()    -> Right valid
 
 printRoundResult :: RoundResult -> IO ()
@@ -71,12 +73,12 @@ hasLastRoundResult st = case bsLastRoundResult st of
   Nothing -> False
   Just _  -> True
 
-executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> BotState -> IORef BotState -> UTCTime -> IO (Maybe String, BotState)
+executeDecision :: Exchange e => Config -> e -> MarketSnapshot -> Decision -> BotState -> IORef BotState -> UTCTime -> IO (Maybe T.Text, BotState)
 executeDecision _      _        _        NoTrade       st _        _         = return (Nothing, st)
 executeDecision config exchange snapshot (DoTrade opp) st stateRef startTime =
     case buildValidPlan snapshot opp of
         Left msg        -> do
-            putStrLn msg
+            TIO.putStrLn msg
             return (Just (formatExecutionError msg), st)
         Right validPlan -> do
             let env = Env { envConfig = config, envExchange = exchange
@@ -84,9 +86,9 @@ executeDecision config exchange snapshot (DoTrade opp) st stateRef startTime =
             result <- runBotM env st (executeRound snapshot validPlan)
             case result of
                 Left err -> do
-                    let msg = "Error ejecutando ronda: " ++ show err
-                    putStrLn msg
-                    return (Just (formatExecutionError (show err)), st)
+                    let msg = "Error ejecutando ronda: " <> T.pack (show err)
+                    TIO.putStrLn msg
+                    return (Just (formatExecutionError msg), st)
                 Right (rr, newSt) -> do
                     printRoundResult rr
                     putStrLn (formatBotStateSummary newSt)
@@ -124,17 +126,18 @@ mkPersistedRound :: RoundResult -> IO PersistedRound
 mkPersistedRound rr = do
     now <- getCurrentTime
     let ts     = case roundFills rr of { (f:_) -> fillTime f; [] -> now }
-        pairs  = intercalate " -> " (map (show . fillPair) (roundFills rr))
+        pairs  = T.intercalate " -> " (map (T.pack . show . fillPair) (roundFills rr))
         amtIn  = qtyAmount (roundAmountIn rr)
         amtOut = qtyAmount (roundAmountOut rr)
         pnl    = roundNetPnlUsdt rr
+        status :: T.Text
         status = case roundStatus rr of
-                    RoundSuccess    -> "exitosa"
-                    RoundFailed _   -> "fallida"
-                    RoundPartial _  -> "parcial"
+                    RoundSuccess   -> "exitosa"
+                    RoundFailed _  -> "fallida"
+                    RoundPartial _ -> "parcial"
     return PersistedRound
         { prTimestamp = ts
-        , prPairs     = if null pairs then "N/A" else pairs
+        , prPairs     = if null (roundFills rr) then "N/A" else pairs
         , prAmountIn  = amtIn
         , prAmountOut = amtOut
         , prPnlUsdt   = pnl
@@ -153,7 +156,7 @@ handleSnapshot config exchange snapshot st stateRef startTime = do
     let opps =
           concatMap (\amt -> detectOpportunities paths snapshot amt) candidates
         decision = makeDecision (cfgMinProfit config) opps
-    putStrLn $ "\n" ++ formatDecision decision
+    TIO.putStrLn $ "\n" <> formatDecision decision
     (postTradeReport, newSt) <- executeDecision config exchange snapshot decision st stateRef startTime
     let fetchedBals = either (const M.empty) id balancesResult
     newSt' <- case bsLastRoundResult newSt of
@@ -167,14 +170,14 @@ handleSnapshot config exchange snapshot st stateRef startTime = do
         sendTelegramMessage config (formatDecision decision) >>=
             either
                 (\err -> putStrLn $ "Error enviando Telegram: " ++ show err)
-                (\_ -> putStrLn "Notificaci?n de decisi?n enviada a Telegram")
+                (\_ -> putStrLn "Notificación de decisión enviada a Telegram")
         case postTradeReport of
             Nothing -> return ()
             Just report ->
                 sendTelegramMessage config report >>=
                     either
                         (\err -> putStrLn $ "Error enviando Telegram post-trade: " ++ show err)
-                        (\_ -> putStrLn "Notificaci?n post-trade enviada a Telegram")
+                        (\_ -> putStrLn "Notificación post-trade enviada a Telegram")
     return newSt'
 
 runOneRound :: BotM AppExchange ()

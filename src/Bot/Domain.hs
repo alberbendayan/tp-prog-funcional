@@ -37,6 +37,7 @@ import Data.Aeson (FromJSON(..), ToJSON(..), ToJSONKey(..), FromJSONKey(..), Val
 import Data.Aeson.Types (toJSONKeyText, FromJSONKeyFunction(..))
 import Data.Maybe (fromJust)
 import Data.Map.Strict (Map)
+import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Time.Clock (UTCTime)
 import GHC.Generics (Generic)
@@ -180,8 +181,8 @@ data Fill = Fill
 
 data RoundStatus
   = RoundSuccess
-  | RoundPartial [String]
-  | RoundFailed String
+  | RoundPartial [Text]
+  | RoundFailed Text
   deriving (Show, Eq, Generic)
 
 data RoundResult = RoundResult
@@ -195,11 +196,11 @@ data RoundResult = RoundResult
 
 data PersistedRound = PersistedRound
   { prTimestamp :: UTCTime
-  , prPairs     :: String
+  , prPairs     :: Text
   , prAmountIn  :: Double
   , prAmountOut :: Double
   , prPnlUsdt   :: Double
-  , prStatus    :: String
+  , prStatus    :: Text
   } deriving (Show, Eq, Generic)
 
 instance FromJSON PersistedRound

@@ -21,17 +21,17 @@ import Data.Time.Clock (getCurrentTime, UTCTime)
 import qualified Data.Map.Strict as Map
 
 data BinanceExchange = BinanceExchange
-    { binanceBaseUrl           :: String
+    { binanceBaseUrl           :: T.Text
     , binanceDefaultCommission :: CommissionRate
-    , binanceApiKey            :: String
-    , binanceApiSecret         :: String
+    , binanceApiKey            :: T.Text
+    , binanceApiSecret         :: T.Text
     }
 
 instance Exchange BinanceExchange where
     checkConnectivity (BinanceExchange url _ _ _) = do
         result <- liftIO $ Client.ping url
         return $ case result of
-            Left err -> Left $ ExchangeConnError (show err)
+            Left err -> Left $ ExchangeConnError (T.pack $ show err)
             Right ok -> Right ok
 
     fetchMarketSnapshot (BinanceExchange url commission apiKey apiSecret) assets = do
@@ -40,7 +40,7 @@ instance Exchange BinanceExchange where
         let okTickers     = [ bt  | TickerOk bt          <- tickerResults ]
             failedTickers = [ err | TickerFailed err      <- tickerResults ]
         case failedTickers of
-            (err:_) -> return $ Left $ ExchangeFetchError (show err)
+            (err:_) -> return $ Left $ ExchangeFetchError (T.pack $ show err)
             []      -> do
                 accountResult <- liftIO $ Client.getAccountInfo url apiKey apiSecret
                 defaultCommission <- case accountResult of
@@ -60,16 +60,16 @@ instance Exchange BinanceExchange where
     fetchBalances (BinanceExchange url _ apiKey apiSecret) = do
         result <- liftIO $ Client.getAccountInfo url apiKey apiSecret
         return $ case result of
-            Left err   -> Left $ ExchangeFetchError (show err)
+            Left err   -> Left $ ExchangeFetchError (T.pack $ show err)
             Right info -> Right $ accountBalances info
 
     executeOrder (BinanceExchange url _ apiKey apiSecret) step = do
-        let symbol = T.unpack $ unSymbol $ pairToSymbol (stepPair step)
-        orderResult <- liftIO $ Client.placeMarketOrder url apiKey apiSecret (T.pack symbol) (sideToText $ stepSide step) (stepQty step)
+        let symText = unSymbol $ pairToSymbol (stepPair step)
+        orderResult <- liftIO $ Client.placeMarketOrder url apiKey apiSecret symText (sideToText $ stepSide step) (stepQty step)
         processOrderResult step orderResult
 
 processOrderResult :: MonadIO m => OrderStep -> Either Client.BinanceError OrderResponse -> m (Either ExchangeError Fill)
-processOrderResult _    (Left err)   = return $ Left $ ExchangeOrderError (show err)
+processOrderResult _    (Left err)   = return $ Left $ ExchangeOrderError (T.pack $ show err)
 processOrderResult step (Right resp) = fillFromResponse resp step <$> liftIO getCurrentTime
 
 sideToText :: OrderSide -> T.Text

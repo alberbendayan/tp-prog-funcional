@@ -16,7 +16,7 @@ import Notification.Telegram (sendTelegramMessage)
 import Control.Exception (SomeException, catch)
 import Data.Aeson (FromJSON(..), genericParseJSON, defaultOptions, fieldLabelModifier)
 import Data.Char (toLower)
-import Data.List (isPrefixOf, intercalate)
+import Data.List (intercalate)
 import Data.IORef (IORef, readIORef)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
@@ -34,7 +34,7 @@ instance FromJSON TgChat where
         { fieldLabelModifier = \f -> if f == "tgChatId" then "id" else f }
 
 data TgMessage = TgMessage
-    { tgMsgText :: Maybe String
+    { tgMsgText :: Maybe T.Text
     , tgMsgChat :: TgChat
     } deriving (Show, Generic)
 
@@ -73,7 +73,7 @@ instance FromJSON TgUpdatesResponse where
 fetchUpdates :: Config -> Int -> IO [TgUpdate]
 fetchUpdates config offset = runReq defaultHttpConfig $ do
     let url = https "api.telegram.org"
-                /: ("bot" <> T.pack (cfgTelegramToken config))
+                /: ("bot" <> cfgTelegramToken config)
                 /: "getUpdates"
     resp <- req GET url NoReqBody jsonResponse $
                "offset"  =: offset <>
@@ -82,17 +82,18 @@ fetchUpdates config offset = runReq defaultHttpConfig $ do
     return $ if tgRespOk body then tgRespResult body else []
 
 
-dispatchCommand :: Config -> BotState -> UTCTime -> String -> Int -> IO ()
+dispatchCommand :: Config -> BotState -> UTCTime -> T.Text -> Int -> IO ()
 dispatchCommand config st startTime cmd chatId = do
     now <- getCurrentTime
-    let parts   = words (dropWhile (== '/') cmd)
+    let parts   = T.words (T.dropWhile (== '/') cmd)
         rawCmd  = if null parts then "" else head parts
-        cmdWord = map toLower . takeWhile (/= '@') $ rawCmd
+        cmdWord = T.map toLower . T.takeWhile (/= '@') $ rawCmd
         argN    = case parts of
-                    (_:arg:_) -> case readMaybe arg of
+                    (_:arg:_) -> case readMaybe (T.unpack arg) of
                                     Just x  -> max 1 (min 20 x)
                                     Nothing -> 5
                     _         -> 5
+        reply :: T.Text
         reply = case cmdWord of
                     "balance"     -> fmtBalance (bsLastFetchedBalances st)
                     "status"      -> fmtStatus st startTime now
@@ -100,7 +101,7 @@ dispatchCommand config st startTime cmd chatId = do
                     "open_orders" -> fmtOpenOrders (length (bsOpenOrders st))
                     "history"     -> fmtHistory (bsTradeHistory st) argN
                     _             -> "Comandos:\n/balance\n/status\n/pnl\n/open_orders\n/history [N]"
-        cfgForChat = config { cfgTelegramChatId = show chatId }
+        cfgForChat = config { cfgTelegramChatId = T.pack (show chatId) }
     sendTelegramMessage cfgForChat reply >>= \case
         Left err -> putStrLn $ "Error respondiendo comando Telegram: " ++ show err
         Right _  -> pure ()
@@ -128,87 +129,84 @@ handleUpdate config stateRef startTime upd =
                 dispatchCommand config st startTime txt cid
 
 
-fmtBalance :: Map Asset Double -> String
+fmtBalance :: Map Asset Double -> T.Text
 fmtBalance bals
     | M.null bals = "Sin datos de balance (esperando primer ciclo)."
-    | otherwise   = unlines $ "Balances actuales:" : map fmtEntry (M.toList bals)
+    | otherwise   = T.unlines $ "Balances actuales:" : map fmtEntry (M.toList bals)
   where
-    fmtEntry (asset, qty) = "  " ++ show asset ++ ": " ++ fixed (assetDecimals asset) qty
+    fmtEntry (asset, qty) =
+        "  " <> T.pack (show asset) <> ": " <> fixed (assetDecimals asset) qty
 
-fmtStatus :: BotState -> UTCTime -> UTCTime -> String
+fmtStatus :: BotState -> UTCTime -> UTCTime -> T.Text
 fmtStatus st startTime now =
-    unlines
+    T.unlines
         [ "Estado del bot"
-        , "Rondas ejecutadas: " ++ show (bsRoundCount st)
-        , "Ultimo resultado:  " ++ fmtLastRound (bsLastRoundResult st)
-        , "Ordenes abiertas:  " ++ show (length (bsOpenOrders st))
-        , "Uptime:            " ++ fmtUptime (diffUTCTime now startTime)
+        , "Rondas ejecutadas: " <> T.pack (show (bsRoundCount st))
+        , "Ultimo resultado:  " <> fmtLastRound (bsLastRoundResult st)
+        , "Ordenes abiertas:  " <> T.pack (show (length (bsOpenOrders st)))
+        , "Uptime:            " <> fmtUptime (diffUTCTime now startTime)
         ]
 
-fmtLastRound :: Maybe RoundResult -> String
+fmtLastRound :: Maybe RoundResult -> T.Text
 fmtLastRound Nothing   = "sin datos"
 fmtLastRound (Just rr) = case roundStatus rr of
-    RoundSuccess     -> "exitosa"
-    RoundFailed msg  -> "fallida (" ++ msg ++ ")"
-    RoundPartial errs -> "parcial (" ++ show (length errs) ++ " errores)"
+    RoundSuccess      -> "exitosa"
+    RoundFailed msg   -> "fallida (" <> msg <> ")"
+    RoundPartial errs -> "parcial (" <> T.pack (show (length errs)) <> " errores)"
 
-fmtPnl :: Map Asset Double -> Int -> String
+fmtPnl :: Map Asset Double -> Int -> T.Text
 fmtPnl pnl rounds
     | M.null pnl = "Sin PnL registrado aun."
-    | otherwise  = unlines $
-        ("PnL acumulado (" ++ show rounds ++ " rondas):") : map fmtEntry (M.toList pnl)
+    | otherwise  = T.unlines $
+        ("PnL acumulado (" <> T.pack (show rounds) <> " rondas):") : map fmtEntry (M.toList pnl)
   where
     fmtEntry (asset, qty) =
         let sign = if qty >= 0 then "+" else ""
-        in "  " ++ show asset ++ ": " ++ sign ++ fixed (assetDecimals asset) qty
+        in "  " <> T.pack (show asset) <> ": " <> sign <> fixed (assetDecimals asset) qty
 
-fmtOpenOrders :: Int -> String
+fmtOpenOrders :: Int -> T.Text
 fmtOpenOrders 0 = "Sin ordenes abiertas."
-fmtOpenOrders n = show n ++ " orden(es) en curso."
+fmtOpenOrders n = T.pack (show n) <> " orden(es) en curso."
 
-fmtHistory :: [PersistedRound] -> Int -> String
+fmtHistory :: [PersistedRound] -> Int -> T.Text
 fmtHistory [] _ = "Sin operaciones registradas aun."
 fmtHistory rounds n =
     let recent  = reverse (take n (reverse rounds))
         shown   = min n (length rounds)
-        hdr     = "Ultimas " ++ show shown ++ " operacion(es):"
+        hdr     = "Ultimas " <> T.pack (show shown) <> " operacion(es):"
         entries = zipWith fmtEntry [1..] recent
-    in unlines $ hdr : "" : intercalate [""] entries
+    in T.unlines $ hdr : "" : intercalate [""] entries
   where
     fmtEntry i pr =
-        [ show (i :: Int) ++ ". [" ++ prStatus pr ++ "]"
-        , "   Ruta:    " ++ prettifyPairs (prPairs pr)
-        , "   Entrada: " ++ fixed 2 (prAmountIn pr)  ++ " USDT"
-        , "   Salida:  " ++ fixed 2 (prAmountOut pr) ++ " USDT"
-        , "   PnL:     " ++ signedFixed (prPnlUsdt pr) ++ " USDT"
+        [ T.pack (show (i :: Int)) <> ". [" <> prStatus pr <> "]"
+        , "   Ruta:    " <> prettifyPairs (prPairs pr)
+        , "   Entrada: " <> fixed 2 (prAmountIn pr)  <> " USDT"
+        , "   Salida:  " <> fixed 2 (prAmountOut pr) <> " USDT"
+        , "   PnL:     " <> signedFixed (prPnlUsdt pr) <> " USDT"
         ]
 
-prettifyPairs :: String -> String
-prettifyPairs s = intercalate " \x2192 " (map parseSingle (splitOn " -> " s))
+prettifyPairs :: T.Text -> T.Text
+prettifyPairs s = T.intercalate " \x2192 " (map parseSingle (T.splitOn " -> " s))
   where
-    parseSingle p = case words p of
-        (_:_:_:b:_:_:q:_) -> filter (/= ',') b ++ "/" ++ filter (/= '}') q
+    parseSingle p = case T.words p of
+        (_:_:_:b:_:_:q:_) -> T.filter (/= ',') b <> "/" <> T.filter (/= '}') q
         _                   -> p
-    splitOn _ [] = [""]
-    splitOn sep lst@(x:xs)
-        | sep `isPrefixOf` lst = "" : splitOn sep (drop (length sep) lst)
-        | otherwise            = case splitOn sep xs of { (y:ys) -> (x:y):ys; [] -> [[x]] }
 
-signedFixed :: Double -> String
+signedFixed :: Double -> T.Text
 signedFixed x
-    | x >= 0    = "+" ++ fixed 2 x
-    | otherwise = fixed 2 x
+    | x >= 0    = "+" <> fixed 2 x
+    | otherwise =        fixed 2 x
 
-fmtUptime :: (RealFrac a) => a -> String
+fmtUptime :: (RealFrac a) => a -> T.Text
 fmtUptime secs =
     let total = floor secs :: Int
         h = total `div` 3600
         m = (total `mod` 3600) `div` 60
         s = total `mod` 60
-    in show h ++ "h " ++ show m ++ "m " ++ show s ++ "s"
+    in T.pack $ show h ++ "h " ++ show m ++ "m " ++ show s ++ "s"
 
-fixed :: Int -> Double -> String
-fixed d x = showFFloat (Just d) x ""
+fixed :: Int -> Double -> T.Text
+fixed d x = T.pack $ showFFloat (Just d) x ""
 
 assetDecimals :: Asset -> Int
 assetDecimals USDT = 2

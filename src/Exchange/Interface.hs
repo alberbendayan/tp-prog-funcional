@@ -3,11 +3,12 @@ module Exchange.Interface where
 import Bot.Domain (Asset, MarketSnapshot, OrderStep, Fill)
 import Control.Monad.IO.Class (MonadIO)
 import Data.Map.Strict (Map)
+import Data.Text (Text)
 
 data ExchangeError
-    = ExchangeConnError String
-    | ExchangeFetchError String
-    | ExchangeOrderError String
+    = ExchangeConnError Text
+    | ExchangeFetchError Text
+    | ExchangeOrderError Text
     deriving (Show, Eq)
 
 class Exchange e where

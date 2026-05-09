@@ -1,4 +1,5 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module FakeExchange.Instance
   ( FakeExchange(..)
@@ -23,6 +24,7 @@ import Control.Monad.IO.Class (liftIO)
 import Data.IORef (IORef, readIORef, atomicModifyIORef')
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
+import qualified Data.Text as T
 import Data.Time.Clock (UTCTime, getCurrentTime, utctDayTime)
 
 data FakeExchangeState = FakeExchangeState
@@ -64,7 +66,7 @@ marketSnapshotFromBook book pairs =
     missingFetch :: Pair -> ExchangeError
     missingFetch p =
       ExchangeFetchError $
-        "FakeExchange: falta cotización para el par " ++ show p
+        "FakeExchange: falta cotización para el par " <> T.pack (show p)
 
 runOrderAgainstState
   :: UTCTime
@@ -89,7 +91,7 @@ buildOrderExecution now step st = do
   nextBalances <- asExchangeOrderError (applyFillToBalances (fesBalances st) fill)
   Right (fill, nextBalances)
 
-asExchangeOrderError :: Either String a -> Either ExchangeError a
+asExchangeOrderError :: Either T.Text a -> Either ExchangeError a
 asExchangeOrderError = either (Left . ExchangeOrderError) Right
 
 quoteForOrder :: Map Pair PairQuote -> Pair -> Either ExchangeError PairQuote
@@ -98,12 +100,12 @@ quoteForOrder book p =
   where
     unknownPair :: Pair -> ExchangeError
     unknownPair x =
-      ExchangeOrderError $ "FakeExchange: par desconocido " ++ show x
+      ExchangeOrderError $ "FakeExchange: par desconocido " <> T.pack (show x)
 
-syntheticFill :: OrderStep -> PairQuote -> UTCTime -> Either String Fill
+syntheticFill :: OrderStep -> PairQuote -> UTCTime -> Either T.Text Fill
 syntheticFill step pq now = mkSyntheticFill step pq now
 
-mkSyntheticFill :: OrderStep -> PairQuote -> UTCTime -> Either String Fill
+mkSyntheticFill :: OrderStep -> PairQuote -> UTCTime -> Either T.Text Fill
 mkSyntheticFill step pq now =
   case (stepSide step, stepQty step) of
     (Sell, QtyBase qty)  -> Right $ fillSellBase step pq now qty
@@ -143,7 +145,7 @@ fillBuyQuote step pq now qtyQuote =
         , fillTime       = now
         }
 
-applyFillToBalances :: Map Asset Double -> Fill -> Either String (Map Asset Double)
+applyFillToBalances :: Map Asset Double -> Fill -> Either T.Text (Map Asset Double)
 applyFillToBalances balances fill =
   case fillSide fill of
     Sell -> applySellFill balances fill
@@ -163,18 +165,18 @@ applyFillToBalances balances fill =
     sellNetQuote f = fillAmountBase f * unPrice (fillPrice f) - fillFee f
     buyQuoteSpent f = fillAmountBase f * unPrice (fillPrice f)
 
-debitAsset :: Asset -> Double -> Map Asset Double -> Either String (Map Asset Double)
+debitAsset :: Asset -> Double -> Map Asset Double -> Either T.Text (Map Asset Double)
 debitAsset asset amount balances
   | amount <= 0 = Right balances
   | available + epsilon < amount =
       Left $
         "FakeExchange: balance insuficiente en "
-          ++ show asset
-          ++ " (disponible="
-          ++ show available
-          ++ ", requerido="
-          ++ show amount
-          ++ ")"
+          <> T.pack (show asset)
+          <> " (disponible="
+          <> T.pack (show available)
+          <> ", requerido="
+          <> T.pack (show amount)
+          <> ")"
   | otherwise =
       Right $ Map.insert asset (available - amount) balances
   where

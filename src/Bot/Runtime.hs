@@ -1,6 +1,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module Bot.Runtime
   ( BotM(..)
@@ -26,6 +27,7 @@ import Data.IORef (IORef)
 import Data.Map.Strict (Map)
 import Data.Time.Clock (UTCTime)
 import qualified Data.Map.Strict as M
+import qualified Data.Text as T
 
 data Env e = Env
   { envConfig    :: Config
@@ -60,9 +62,9 @@ initialBotState = BotState
   }
 
 data BotError
-  = BotExchangeError String
-  | BotExecutionError String
-  | BotConfigError String
+  = BotExchangeError T.Text
+  | BotExecutionError T.Text
+  | BotConfigError T.Text
   deriving (Show, Eq)
 
 newtype BotM e a = BotM
@@ -78,7 +80,7 @@ extractStepInputAmount :: OrderStep -> AssetQty
 extractStepInputAmount (OrderStep pair _ (QtyBase  qty)) = AssetQty (base  pair) qty
 extractStepInputAmount (OrderStep pair _ (QtyQuote qty)) = AssetQty (quote pair) qty
 
-buildRoundStatusFromErrors :: [String] -> RoundStatus
+buildRoundStatusFromErrors :: [T.Text] -> RoundStatus
 buildRoundStatusFromErrors []   = RoundSuccess
 buildRoundStatusFromErrors errs = RoundPartial errs
 
@@ -89,7 +91,7 @@ calculateFinalOutputAmount _     fills =
     in AssetQty (quote (fillPair lastFill))
                 (fillAmountBase lastFill * unPrice (fillPrice lastFill))
 
-buildRoundResult :: MarketSnapshot -> AssetQty -> [Fill] -> [String] -> Either String RoundResult
+buildRoundResult :: MarketSnapshot -> AssetQty -> [Fill] -> [T.Text] -> Either T.Text RoundResult
 buildRoundResult snapshot amtIn fills errs =
     let amtOut = calculateFinalOutputAmount amtIn fills
         deltas = roundBalanceDeltasFromParts amtIn amtOut fills
@@ -109,7 +111,7 @@ buildRoundResult snapshot amtIn fills errs =
 
 executeStepsSequentially
   :: (MonadIO m, MonadError BotError m, Exchange e)
-  => e -> [OrderStep] -> [Fill] -> m ([Fill], [String])
+  => e -> [OrderStep] -> [Fill] -> m ([Fill], [T.Text])
 executeStepsSequentially _  []     acc = return (reverse acc, [])
 executeStepsSequentially ex (s:ss) acc = executeOrder ex s >>= onResult
   where
@@ -123,7 +125,7 @@ executeStepsSequentially ex (s:ss) acc = executeOrder ex s >>= onResult
     handleOrderError (ExchangeFetchError msg) =
       failCritical "Fallo critico de API durante ejecucion de orden" msg
 
-    failCritical label msg = throwError (BotExchangeError (label ++ ": " ++ msg))
+    failCritical label msg = throwError (BotExchangeError (label <> ": " <> msg))
 
 checkConnectivityOrThrow :: Exchange e => BotM e ()
 checkConnectivityOrThrow = do
@@ -131,7 +133,7 @@ checkConnectivityOrThrow = do
     conn <- checkConnectivity (envExchange env)
     case conn of
       Left err ->
-        throwError $ BotExchangeError ("Error de conectividad: " ++ show err)
+        throwError $ BotExchangeError ("Error de conectividad: " <> T.pack (show err))
       Right False ->
         throwError $ BotExchangeError "Error de conectividad: checkConnectivity devolvio False"
       Right True ->
@@ -142,7 +144,7 @@ fetchMarketSnapshotOrThrow assets = do
     env <- ask
     snapshot <- fetchMarketSnapshot (envExchange env) assets
     case snapshot of
-      Left err -> throwError $ BotExchangeError ("Error obteniendo mercado: " ++ show err)
+      Left err -> throwError $ BotExchangeError ("Error obteniendo mercado: " <> T.pack (show err))
       Right s  -> return s
 
 executeRound :: Exchange e => MarketSnapshot -> ExecutionPlan -> BotM e RoundResult
@@ -153,7 +155,7 @@ executeRound snapshot plan = do
     modify $ \s -> s { bsOpenOrders = steps }
     (fills, errs) <- executeStepsSequentially (envExchange env) steps []
     result <- case buildRoundResult snapshot amtIn fills errs of
-      Left err -> throwError (BotExecutionError ("No se pudo calcular PnL de la ronda: " ++ err))
+      Left err -> throwError (BotExecutionError ("No se pudo calcular PnL de la ronda: " <> err))
       Right rr -> return rr
     modify $ updateStateWithRound result
     return result
@@ -197,11 +199,11 @@ roundBalanceDeltasFromParts amtIn amtOut fills =
         feeDeltas = map (\f -> (fillFeeAsset f, - fillFee f)) fills
     in M.fromListWith (+) (baseDeltas ++ feeDeltas)
 
-netPnlUsdtFromDeltas :: MarketSnapshot -> Map Asset Double -> Either String Double
+netPnlUsdtFromDeltas :: MarketSnapshot -> Map Asset Double -> Either T.Text Double
 netPnlUsdtFromDeltas snapshot deltas =
     sum <$> traverse valueEntry (M.toList deltas)
   where
-    valueEntry :: (Asset, Double) -> Either String Double
+    valueEntry :: (Asset, Double) -> Either T.Text Double
     valueEntry (asset, deltaQty)
       | abs deltaQty <= 1e-18 = Right 0
       | deltaQty > 0 = do
@@ -211,12 +213,12 @@ netPnlUsdtFromDeltas snapshot deltas =
           rate <- assetUsdtRateWhenBuying snapshot asset
           Right (deltaQty * rate)
 
-validateSameAsset :: AssetQty -> AssetQty -> Either String ()
+validateSameAsset :: AssetQty -> AssetQty -> Either T.Text ()
 validateSameAsset amtIn amtOut
   | qtyAsset amtIn == qtyAsset amtOut = Right ()
   | otherwise =
       Left $
         "roundAmountIn/out tienen assets distintos: in="
-          ++ show (qtyAsset amtIn)
-          ++ ", out="
-          ++ show (qtyAsset amtOut)
+          <> T.pack (show (qtyAsset amtIn))
+          <> ", out="
+          <> T.pack (show (qtyAsset amtOut))

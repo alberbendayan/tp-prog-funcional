@@ -1,3 +1,5 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module Bot.Arbitraje
     ( allTriangularPaths
     , simulatePath
@@ -11,6 +13,7 @@ module Bot.Arbitraje
 
 import Bot.Domain
 import qualified Data.Map.Strict as Map
+import qualified Data.Text as T
 import Data.List (tails, maximumBy, permutations)
 import Data.Maybe (fromMaybe)
 import Data.Ord (comparing)
@@ -142,6 +145,7 @@ opportunityToExecutionPlan snapshot opp = do
         step2 = OrderStep (simulatedBinancePair s2) (simulatedOrderSide s2) (simulatedQuantity s2)
         step3 = OrderStep (simulatedBinancePair s3) (simulatedOrderSide s3) (simulatedQuantity s3)
     return $ mkExecutionPlan path step1 step2 step3
+
 data PlanError
     = StepQtyZeroAfterRound { planErrStep :: Int }
     | StepQtyNegative       { planErrStep :: Int }
@@ -173,27 +177,27 @@ validateAndQuantizePlan plan = do
     s3 <- validateStep 3 (planStep3 plan)
     return $ mkExecutionPlan (planPath plan) s1 s2 s3
 
-validatePlanLiquidity :: MarketSnapshot -> ExecutionPlan -> Either String ()
+validatePlanLiquidity :: MarketSnapshot -> ExecutionPlan -> Either T.Text ()
 validatePlanLiquidity snapshot plan =
     mapM_ checkStep (zip [1 :: Int ..] (executionPlanSteps plan))
   where
     quotes = snapshotQuotes snapshot
 
-    checkStep :: (Int, OrderStep) -> Either String ()
+    checkStep :: (Int, OrderStep) -> Either T.Text ()
     checkStep (n, step) =
         case Map.lookup (stepPair step) quotes of
-            Nothing -> Left $ "paso " ++ show n ++ ": par no disponible en snapshot"
+            Nothing -> Left $ "paso " <> T.pack (show n) <> ": par no disponible en snapshot"
             Just q  -> checkLiquidity n q (stepSide step) (stepQty step)
 
-    checkLiquidity :: Int -> PairQuote -> OrderSide -> MarketOrderQty -> Either String ()
+    checkLiquidity :: Int -> PairQuote -> OrderSide -> MarketOrderQty -> Either T.Text ()
     checkLiquidity n q Sell (QtyBase qty)
         | qty <= bidQty q = Right ()
-        | otherwise       = Left $ "paso " ++ show n ++ ": liquidez insuficiente (sell "
-                                ++ show qty ++ " > bidQty " ++ show (bidQty q) ++ ")"
+        | otherwise       = Left $ "paso " <> T.pack (show n) <> ": liquidez insuficiente (sell "
+                                <> T.pack (show qty) <> " > bidQty " <> T.pack (show (bidQty q)) <> ")"
     checkLiquidity n q Buy (QtyQuote qty)
         | qty / unPrice (askPrice q) <= askQty q = Right ()
-        | otherwise = Left $ "paso " ++ show n ++ ": liquidez insuficiente (buy, baseNeeded "
-                          ++ show (qty / unPrice (askPrice q))
-                          ++ " > askQty " ++ show (askQty q) ++ ")"
+        | otherwise = Left $ "paso " <> T.pack (show n) <> ": liquidez insuficiente (buy, baseNeeded "
+                          <> T.pack (show (qty / unPrice (askPrice q)))
+                          <> " > askQty " <> T.pack (show (askQty q)) <> ")"
     checkLiquidity n _ _ _ =
-        Left $ "paso " ++ show n ++ ": combinacion inesperada de side/qty"
+        Left $ "paso " <> T.pack (show n) <> ": combinacion inesperada de side/qty"

@@ -17,7 +17,6 @@ import qualified Data.Text as T
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Maybe (mapMaybe)
-import Data.List (isInfixOf)
 import Data.Time.Clock (UTCTime)
 
 parseAsset :: Text -> Maybe Asset
@@ -89,23 +88,23 @@ generateAllPairs :: [Asset] -> [Pair]
 generateAllPairs assets =
     concatMap (pairsForBase assets) assets
 
-fetchSingleTicker :: String -> Symbol -> IO TickerResult
+fetchSingleTicker :: T.Text -> Symbol -> IO TickerResult
 fetchSingleTicker url sym@(Symbol rawSym) = do
   result <- Client.getBookTicker url rawSym
   case result of
     Right bt -> return (TickerOk bt)
     Left (Client.NetworkError msg)
-      | "Invalid symbol" `isInfixOf` msg
+      | "Invalid symbol" `T.isInfixOf` msg
       -> return (TickerNotSupported sym)
     Left err -> return (TickerFailed err)
 
-fetchBookTickersForPairs :: String -> [Pair] -> IO [TickerResult]
+fetchBookTickersForPairs :: T.Text -> [Pair] -> IO [TickerResult]
 fetchBookTickersForPairs baseUrl pairs = do
     let symbols = map pairToSymbol pairs
     results <- mapM (fetchSingleTicker baseUrl) symbols
     return results
 
-orderResponseToFill :: OrderResponse -> OrderSide -> Pair -> UTCTime -> Either String Fill
+orderResponseToFill :: OrderResponse -> OrderSide -> Pair -> UTCTime -> Either T.Text Fill
 orderResponseToFill resp side pair time
     | null (orFills resp) = Left "orderResponseToFill: no fills en la respuesta"
     | otherwise =
