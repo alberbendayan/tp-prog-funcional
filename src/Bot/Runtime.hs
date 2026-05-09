@@ -37,8 +37,7 @@ data Env e = Env
   }
 
 data BotState = BotState
-  { bsRounds               :: [RoundResult]
-  , bsLastRoundResult      :: Maybe RoundResult
+  { bsLastRoundResult      :: Maybe RoundResult
   , bsBalances             :: Map Asset Double
   , bsOpenOrders           :: [OrderStep]
   , bsRoundCount           :: Int
@@ -50,8 +49,7 @@ data BotState = BotState
 
 initialBotState :: BotState
 initialBotState = BotState
-  { bsRounds              = []
-  , bsLastRoundResult     = Nothing
+  { bsLastRoundResult     = Nothing
   , bsBalances            = M.empty
   , bsOpenOrders          = []
   , bsRoundCount          = 0
@@ -163,8 +161,7 @@ executeRound snapshot plan = do
 updateStateWithRound :: RoundResult -> BotState -> BotState
 updateStateWithRound rr st =
     st
-      { bsRounds = bsRounds st ++ [rr]
-      , bsLastRoundResult = Just rr
+      { bsLastRoundResult = Just rr
       , bsBalances = mergeAssetMaps (bsBalances st) (roundBalanceDeltas rr)
       , bsOpenOrders = []
       , bsRoundCount = bsRoundCount st + 1

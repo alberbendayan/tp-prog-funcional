@@ -9,10 +9,10 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
 
+hmacSha256Hex :: BS.ByteString -> BS.ByteString -> BS.ByteString
+hmacSha256Hex key msg =
+    convertToBase Base16 (hmacGetDigest (hmac key msg :: HMAC SHA256))
+
 signQueryString :: T.Text -> T.Text -> T.Text
 signQueryString secret queryStr =
-    let secretBS  = TE.encodeUtf8 secret
-        msgBS     = TE.encodeUtf8 queryStr
-        digest    = hmacGetDigest (hmac secretBS msgBS :: HMAC SHA256)
-        hexBytes  = convertToBase Base16 digest :: BS.ByteString
-    in TE.decodeUtf8 hexBytes
+    TE.decodeUtf8 $ hmacSha256Hex (TE.encodeUtf8 secret) (TE.encodeUtf8 queryStr)
