@@ -21,6 +21,7 @@ import Bot.Domain (Asset(..), Pair(..), Price(..), MarketOrderQty(..))
 import Data.Aeson
 import Data.Text (Text)
 import qualified Data.Text as T
+import qualified Data.Text.Read as TR
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import GHC.Generics
@@ -61,12 +62,12 @@ instance FromJSON BookTicker where
     bidQtyStr <- o .: "bidQty"
     askPrice  <- o .: "askPrice"
     askQtyStr <- o .: "askQty"
-    bidQty <- case reads (T.unpack bidQtyStr) of
-      [(d, "")] -> return d
-      _         -> fail "Invalid bidQty string"
-    askQty <- case reads (T.unpack askQtyStr) of
-      [(d, "")] -> return d
-      _         -> fail "Invalid askQty string"
+    bidQty <- case TR.double bidQtyStr of
+      Right (d, "") -> return d
+      _             -> fail "Invalid bidQty string"
+    askQty <- case TR.double askQtyStr of
+      Right (d, "") -> return d
+      _             -> fail "Invalid askQty string"
     return $ BookTicker symbol bidPrice bidQty askPrice askQty
 
 data TradeFee = TradeFee
@@ -89,9 +90,9 @@ instance FromJSON AssetBalance where
   parseJSON = withObject "AssetBalance" $ \o -> do
     asset   <- o .: "asset"
     freeStr <- o .: "free"
-    free <- case reads (T.unpack freeStr) of
-      [(d, "")] -> return d
-      _         -> fail "Invalid free balance string"
+    free <- case TR.double freeStr of
+      Right (d, "") -> return d
+      _             -> fail "Invalid free balance string"
     return $ AssetBalance asset free
 
 parseKnownAsset :: Text -> Maybe Asset
@@ -131,12 +132,12 @@ instance FromJSON OrderFill where
     qtyStr          <- o .: "qty"
     commStr         <- o .: "commission"
     commissionAsset <- o .: "commissionAsset"
-    qty <- case reads (T.unpack qtyStr) of
-      [(d, "")] -> return d
-      _         -> fail "Invalid qty string"
-    comm <- case reads (T.unpack commStr) of
-      [(d, "")] -> return d
-      _         -> fail "Invalid commission string"
+    qty <- case TR.double qtyStr of
+      Right (d, "") -> return d
+      _             -> fail "Invalid qty string"
+    comm <- case TR.double commStr of
+      Right (d, "") -> return d
+      _             -> fail "Invalid commission string"
     return $ OrderFill price qty comm commissionAsset
 
 data OrderResponse = OrderResponse
@@ -152,10 +153,10 @@ instance FromJSON OrderResponse where
     exqStr  <- o .: "executedQty"
     cqqStr  <- o .: "cummulativeQuoteQty"
     fills   <- o .: "fills"
-    exq <- case reads (T.unpack exqStr) of
-      [(d, "")] -> return d
-      _         -> fail "Invalid executedQty string"
-    cqq <- case reads (T.unpack cqqStr) of
-      [(d, "")] -> return d
-      _         -> fail "Invalid cummulativeQuoteQty string"
+    exq <- case TR.double exqStr of
+      Right (d, "") -> return d
+      _             -> fail "Invalid executedQty string"
+    cqq <- case TR.double cqqStr of
+      Right (d, "") -> return d
+      _             -> fail "Invalid cummulativeQuoteQty string"
     return $ OrderResponse status exq cqq fills
