@@ -31,18 +31,21 @@ data BinanceError
 
 instance Exception BinanceError
 
-ping :: Text -> IO (Either BinanceError Bool)
-ping baseUrl = do
-    result <- makeGetRequest baseUrl pingEndpoint [] ignoreResponse
-    case result of
-        Left err -> return $ Left err
-        Right _  -> return $ Right True
+posixTimestampMs :: IO Text
+posixTimestampMs = T.pack . show . (floor :: Double -> Integer) . (* 1000) . realToFrac <$> getPOSIXTime
 
-makeJsonGetRequest :: FromJSON a
-                   => Text -> Text -> [(Text, Text)]
-                   -> IO (Either BinanceError a)
-makeJsonGetRequest baseUrl endpoint params =
-    fmap (fmap responseBody) $ makeGetRequest baseUrl endpoint params jsonResponse
+signedTimestampParams :: Text -> IO [(Text, Text)]
+signedTimestampParams apiSecret = do
+    ts <- posixTimestampMs
+    let sig = Auth.signQueryString apiSecret ("timestamp=" <> ts)
+    return [("timestamp", ts), ("signature", sig)]
+
+marketQtyParam :: MarketOrderQty -> (Text, Text)
+marketQtyParam (QtyBase  q) = ("quantity",      T.pack $ show q)
+marketQtyParam (QtyQuote q) = ("quoteOrderQty", T.pack $ show q)
+
+ping :: Text -> IO (Either BinanceError Bool)
+ping baseUrl = fmap (const True) <$> makeGetRequest baseUrl pingEndpoint [] ignoreResponse
 
 getBookTicker :: Text -> Text -> IO (Either BinanceError BookTicker)
 getBookTicker baseUrl symbol =
@@ -50,50 +53,69 @@ getBookTicker baseUrl symbol =
 
 getAccountInfo :: Text -> Text -> Text -> IO (Either BinanceError AccountInfo)
 getAccountInfo baseUrl apiKey apiSecret = do
-    posixTime <- getPOSIXTime
-    let ts       = T.pack $ show (floor (posixTime * 1000) :: Integer)
-        queryStr = "timestamp=" <> ts
-        sig      = Auth.signQueryString apiSecret queryStr
-        params   = [("timestamp", ts), ("signature", sig)]
+    params <- signedTimestampParams apiSecret
     makeAuthJsonGetRequest baseUrl accountEndpoint params apiKey
 
 getTradeFees :: Text -> Text -> Text -> IO (Either BinanceError [TradeFee])
 getTradeFees baseUrl apiKey apiSecret = do
-    posixTime <- getPOSIXTime
-    let ts       = T.pack $ show (floor (posixTime * 1000) :: Integer)
-        queryStr = "timestamp=" <> ts
-        sig      = Auth.signQueryString apiSecret queryStr
-        params   = [("timestamp", ts), ("signature", sig)]
+    params <- signedTimestampParams apiSecret
     makeAuthJsonGetRequest baseUrl tradeFeeEndpoint params apiKey
 
 placeMarketOrder
-    :: Text
-    -> Text
-    -> Text
-    -> Text
-    -> Text
-    -> MarketOrderQty
+    :: Text -> Text -> Text -> Text -> Text -> MarketOrderQty
     -> IO (Either BinanceError OrderResponse)
 placeMarketOrder baseUrl apiKey apiSecret symbol side marketQty = do
-    posixTime <- getPOSIXTime
-    let ts           = T.pack $ show (floor (posixTime * 1000) :: Integer)
-        (qtyKey, qtyVal) = case marketQty of
-            QtyBase  q -> ("quantity",      T.pack $ show q)
-            QtyQuote q -> ("quoteOrderQty", T.pack $ show q)
-        queryStr = "symbol="   <> symbol
-                <> "&side="    <> side
-                <> "&type=MARKET"
-                <> "&" <> qtyKey <> "=" <> qtyVal
-                <> "&timestamp=" <> ts
+    ts <- posixTimestampMs
+    let (qtyKey, qtyVal) = marketQtyParam marketQty
+        queryStr = "symbol=" <> symbol <> "&side=" <> side <> "&type=MARKET"
+                <> "&" <> qtyKey <> "=" <> qtyVal <> "&timestamp=" <> ts
         sig    = Auth.signQueryString apiSecret queryStr
-        params = [ ("symbol",    symbol)
-                 , ("side",      side)
-                 , ("type",      "MARKET")
-                 , (qtyKey,      qtyVal)
-                 , ("timestamp", ts)
-                 , ("signature", sig)
-                 ]
+        params = [("symbol", symbol), ("side", side), ("type", "MARKET"),
+                  (qtyKey, qtyVal), ("timestamp", ts), ("signature", sig)]
     makeAuthJsonPostRequest baseUrl orderEndpoint params apiKey
+
+wrapReq :: IO a -> IO (Either BinanceError a)
+wrapReq action = do
+    result <- try action
+    return $ case result of
+        Left (e :: SomeException) -> Left $ NetworkError (T.pack $ show e)
+        Right r                   -> Right r
+
+buildAuthHeader :: Text -> Option 'Https
+buildAuthHeader apiKey = header "X-MBX-APIKEY" (TE.encodeUtf8 apiKey)
+
+runApiRequest
+    :: (HttpMethod method, HttpResponse response, HttpBodyAllowed (AllowsBody method) 'NoBody)
+    => method -> Text -> Text -> [(Text, Text)] -> Option 'Https -> Proxy response
+    -> IO (Either BinanceError response)
+runApiRequest method baseUrl endpoint params extraOpts responseType =
+    wrapReq $ runReq defaultHttpConfig $
+        let (url, reqParams) = mkRequest baseUrl endpoint params
+        in req method url NoReqBody responseType (reqParams <> extraOpts)
+
+makeGetRequest :: HttpResponse response
+               => Text -> Text -> [(Text, Text)] -> Proxy response -> IO (Either BinanceError response)
+makeGetRequest baseUrl endpoint params = runApiRequest GET baseUrl endpoint params mempty
+
+makeAuthGetRequest :: HttpResponse response
+                   => Text -> Text -> [(Text, Text)] -> Text -> Proxy response -> IO (Either BinanceError response)
+makeAuthGetRequest baseUrl endpoint params apiKey = runApiRequest GET baseUrl endpoint params (buildAuthHeader apiKey)
+
+makeAuthPostRequest :: HttpResponse response
+                    => Text -> Text -> [(Text, Text)] -> Text -> Proxy response -> IO (Either BinanceError response)
+makeAuthPostRequest baseUrl endpoint params apiKey = runApiRequest POST baseUrl endpoint params (buildAuthHeader apiKey)
+
+makeJsonGetRequest :: FromJSON a
+                   => Text -> Text -> [(Text, Text)]
+                   -> IO (Either BinanceError a)
+makeJsonGetRequest baseUrl endpoint params =
+    fmap responseBody <$> makeGetRequest baseUrl endpoint params jsonResponse
+
+makeAuthJsonGetRequest :: FromJSON a
+                       => Text -> Text -> [(Text, Text)] -> Text
+                       -> IO (Either BinanceError a)
+makeAuthJsonGetRequest baseUrl endpoint params apiKey =
+    fmap responseBody <$> makeAuthGetRequest baseUrl endpoint params apiKey jsonResponse
 
 makeAuthJsonPostRequest :: FromJSON a
                         => Text -> Text -> [(Text, Text)] -> Text
@@ -101,52 +123,17 @@ makeAuthJsonPostRequest :: FromJSON a
 makeAuthJsonPostRequest baseUrl endpoint params apiKey =
     fmap responseBody <$> makeAuthPostRequest baseUrl endpoint params apiKey jsonResponse
 
-makeAuthPostRequest :: HttpResponse response
-                    => Text -> Text -> [(Text, Text)] -> Text -> Proxy response
-                    -> IO (Either BinanceError response)
-makeAuthPostRequest baseUrl endpoint params apiKey responseType = do
-    result <- try $ runReq defaultHttpConfig $ do
-        let (url, reqParams) = mkRequest baseUrl endpoint params
-            authHeader       = header "X-MBX-APIKEY" (TE.encodeUtf8 apiKey)
-        req POST url NoReqBody responseType (reqParams <> authHeader)
-    case result of
-        Left (e :: SomeException) -> return $ Left $ NetworkError (T.pack $ show e)
-        Right resp                -> return $ Right resp
+extractHost :: Text -> Text
+extractHost = T.drop (T.length "https://")
 
-makeAuthJsonGetRequest :: FromJSON a
-                       => Text -> Text -> [(Text, Text)] -> Text
-                       -> IO (Either BinanceError a)
-makeAuthJsonGetRequest baseUrl endpoint params apiKey =
-    fmap (fmap responseBody) $ makeAuthGetRequest baseUrl endpoint params apiKey jsonResponse
+extractPathParts :: Text -> [Text]
+extractPathParts = filter (not . T.null) . T.splitOn "/"
 
-makeAuthGetRequest :: HttpResponse response
-                   => Text -> Text -> [(Text, Text)] -> Text -> Proxy response
-                   -> IO (Either BinanceError response)
-makeAuthGetRequest baseUrl endpoint params apiKey responseType = do
-    result <- try $ runReq defaultHttpConfig $ do
-        let (url, reqParams) = mkRequest baseUrl endpoint params
-            authHeader       = header "X-MBX-APIKEY" (TE.encodeUtf8 apiKey)
-        response <- req GET url NoReqBody responseType (reqParams <> authHeader)
-        return response
-    case result of
-        Left (e :: SomeException) -> return $ Left $ NetworkError (T.pack $ show e)
-        Right resp                -> return $ Right resp
+buildUrl :: Text -> Text -> Url 'Https
+buildUrl baseUrl endpoint = foldl (/:) (https (extractHost baseUrl)) (extractPathParts endpoint)
 
-makeGetRequest :: HttpResponse response
-               => Text -> Text -> [(Text, Text)] -> Proxy response -> IO (Either BinanceError response)
-makeGetRequest baseUrl endpoint params responseType = do
-    result <- try $ runReq defaultHttpConfig $ do
-        let (url, reqParams) = mkRequest baseUrl endpoint params
-        response <- req GET url NoReqBody responseType reqParams
-        return response
-    case result of
-        Left (e :: SomeException) -> return $ Left $ NetworkError (T.pack $ show e)
-        Right resp                -> return $ Right resp
-
+buildParams :: [(Text, Text)] -> Option 'Https
+buildParams = mconcat . map (uncurry (=:))
+-- (=:) :: QueryParam param => Text -> Text -> param
 mkRequest :: Text -> Text -> [(Text, Text)] -> (Url 'Https, Option 'Https)
-mkRequest baseUrl endpoint params =
-    let host      = T.drop (T.length "https://") baseUrl
-        pathParts = filter (not . T.null) $ T.splitOn "/" endpoint
-        url       = foldl (/:) (https host) pathParts
-        reqParams = mconcat $ map (\(k, v) -> k =: v) params
-    in (url, reqParams)
+mkRequest baseUrl endpoint params = (buildUrl baseUrl endpoint, buildParams params)

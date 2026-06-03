@@ -14,7 +14,7 @@ module Bot.Arbitraje
 import Bot.Domain
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
-import Data.List (tails, maximumBy, permutations)
+import Data.List (tails, maximumBy)
 import Data.Maybe (fromMaybe)
 import Data.Ord (comparing)
 
@@ -28,7 +28,7 @@ allTriangularPaths assets =
 
     pathsForCombination :: (Asset, Asset, Asset) -> [TriangularPath]
     pathsForCombination (a, b, c) =
-        concatMap pathsForOrder (permutations [a, b, c])
+        concatMap pathsForOrder [[a,b,c],[b,c,a],[c,a,b]]
 
     pathsForOrder :: [Asset] -> [TriangularPath]
     pathsForOrder [x, y, z] = mkAllTriangularPaths x y z

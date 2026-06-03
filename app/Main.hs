@@ -216,6 +216,6 @@ main = do
                   , envStateRef  = stateRef
                   , envStartTime = startTime }
     when (cfgTelegramEnabled config) $
-        forkIO (runCommandListener config stateRef startTime) >> pure ()
+        forkIO (runCommandListener exchange config stateRef startTime) >> pure ()
     result <- runBotM env initSt botLoop
     either (\err -> putStrLn $ "Error irrecuperable: " ++ show err) (\_ -> pure ()) result

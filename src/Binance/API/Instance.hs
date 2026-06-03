@@ -12,9 +12,9 @@ import Binance.API.Conversion
     , tradeFeeMap
     , orderResponseToFill
     )
-import Bot.Domain (CommissionRate(..), OrderStep(..), OrderSide(..), Fill(..))
-import Data.Bifunctor (first)
-import Binance.API.Types (AccountInfo(..), OrderResponse(..), pairToSymbol, Symbol(..), accountBalances)
+import Bot.Domain (CommissionRate(..), MarketSnapshot, OrderStep(..), OrderSide(..), Fill(..))
+import Data.Bifunctor (bimap, first)
+import Binance.API.Types (AccountInfo(..), BookTicker, OrderResponse(..), pairToSymbol, Symbol(..), accountBalances)
 import qualified Data.Text as T
 import Control.Monad.IO.Class (liftIO, MonadIO)
 import Data.Time.Clock (getCurrentTime, UTCTime)
@@ -28,45 +28,40 @@ data BinanceExchange = BinanceExchange
     }
 
 instance Exchange BinanceExchange where
-    checkConnectivity (BinanceExchange url _ _ _) = do
-        result <- liftIO $ Client.ping url
-        return $ case result of
-            Left err -> Left $ ExchangeConnError (T.pack $ show err)
-            Right ok -> Right ok
+    checkConnectivity (BinanceExchange url _ _ _) =
+        liftIO $ first (ExchangeConnError . T.pack . show) <$> Client.ping url
 
     fetchMarketSnapshot (BinanceExchange url commission apiKey apiSecret) assets = do
-        let pairs = generateAllPairs assets
-        tickerResults <- liftIO $ fetchBookTickersForPairs url pairs
-        let okTickers     = [ bt  | TickerOk bt          <- tickerResults ]
-            failedTickers = [ err | TickerFailed err      <- tickerResults ]
-        case failedTickers of
+        tickers <- liftIO $ fetchBookTickersForPairs url (generateAllPairs assets)
+        case [err | TickerFailed err <- tickers] of
             (err:_) -> return $ Left $ ExchangeFetchError (T.pack $ show err)
-            []      -> do
-                accountResult <- liftIO $ Client.getAccountInfo url apiKey apiSecret
-                defaultCommission <- case accountResult of
-                    Right info -> do
-                        let rate = fromIntegral (accountTakerCommission info) / 10000.0
-                        liftIO $ putStrLn $ "Comisión de cuenta: " ++ show rate
-                        return $ CommissionRate rate
-                    Left err -> do
-                        liftIO $ putStrLn $ "Warning: no se pudo obtener comisión de cuenta: " ++ show err ++ ", usando comisión del config"
-                        return commission
-                feeResult <- liftIO $ Client.getTradeFees url apiKey apiSecret
-                feeMap <- case feeResult of
-                    Right fees -> return $ tradeFeeMap fees
-                    Left _     -> return Map.empty
-                return $ Right $ buildMarketSnapshotWithFees okTickers feeMap defaultCommission
+            []      -> Right <$> buildSnapshot url commission apiKey apiSecret [bt | TickerOk bt <- tickers]
 
-    fetchBalances (BinanceExchange url _ apiKey apiSecret) = do
-        result <- liftIO $ Client.getAccountInfo url apiKey apiSecret
-        return $ case result of
-            Left err   -> Left $ ExchangeFetchError (T.pack $ show err)
-            Right info -> Right $ accountBalances info
+    fetchBalances (BinanceExchange url _ apiKey apiSecret) =
+        liftIO $ bimap (ExchangeFetchError . T.pack . show) accountBalances
+               <$> Client.getAccountInfo url apiKey apiSecret
 
-    executeOrder (BinanceExchange url _ apiKey apiSecret) step = do
-        let symText = unSymbol $ pairToSymbol (stepPair step)
-        orderResult <- liftIO $ Client.placeMarketOrder url apiKey apiSecret symText (sideToText $ stepSide step) (stepQty step)
-        processOrderResult step orderResult
+    executeOrder (BinanceExchange url _ apiKey apiSecret) step =
+        liftIO (Client.placeMarketOrder url apiKey apiSecret sym side qty) >>= processOrderResult step
+      where
+        sym  = unSymbol $ pairToSymbol (stepPair step)
+        side = sideToText (stepSide step)
+        qty  = stepQty step
+
+buildSnapshot :: MonadIO m => T.Text -> CommissionRate -> T.Text -> T.Text -> [BookTicker] -> m MarketSnapshot
+buildSnapshot url commission apiKey apiSecret okTickers = do
+    defaultCommission <- liftIO (Client.getAccountInfo url apiKey apiSecret) >>= resolveCommission commission
+    feeMap <- either (const Map.empty) tradeFeeMap <$> liftIO (Client.getTradeFees url apiKey apiSecret)
+    return $ buildMarketSnapshotWithFees okTickers feeMap defaultCommission
+
+resolveCommission :: MonadIO m => CommissionRate -> Either Client.BinanceError AccountInfo -> m CommissionRate
+resolveCommission _ (Right info) = do
+    let rate = fromIntegral (accountTakerCommission info) / 10000.0
+    liftIO $ putStrLn $ "Comisión de cuenta: " ++ show rate
+    return $ CommissionRate rate
+resolveCommission fallback (Left err) = do
+    liftIO $ putStrLn $ "Warning: no se pudo obtener comisión de cuenta: " ++ show err ++ ", usando comisión del config"
+    return fallback
 
 processOrderResult :: MonadIO m => OrderStep -> Either Client.BinanceError OrderResponse -> m (Either ExchangeError Fill)
 processOrderResult _    (Left err)   = return $ Left $ ExchangeOrderError (T.pack $ show err)

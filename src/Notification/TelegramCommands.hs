@@ -11,6 +11,7 @@ module Notification.TelegramCommands
 import Bot.Config (Config(..))
 import Bot.Domain (Asset(..), RoundResult(..), RoundStatus(..), PersistedRound(..))
 import Bot.Runtime (BotState(..))
+import Exchange.Interface (Exchange(..))
 import Text.Read (readMaybe)
 import Notification.Telegram (sendTelegramMessage)
 import Control.Exception (SomeException, catch)
@@ -82,8 +83,8 @@ fetchUpdates config offset = runReq defaultHttpConfig $ do
     return $ if tgRespOk body then tgRespResult body else []
 
 
-dispatchCommand :: Config -> BotState -> UTCTime -> T.Text -> Int -> IO ()
-dispatchCommand config st startTime cmd chatId = do
+dispatchCommand :: Exchange e => e -> Config -> BotState -> UTCTime -> T.Text -> Int -> IO ()
+dispatchCommand exchange config st startTime cmd chatId = do
     now <- getCurrentTime
     let parts   = T.words (T.dropWhile (== '/') cmd)
         rawCmd  = if null parts then "" else head parts
@@ -93,32 +94,33 @@ dispatchCommand config st startTime cmd chatId = do
                                     Just x  -> max 1 (min 20 x)
                                     Nothing -> 5
                     _         -> 5
-        reply :: T.Text
-        reply = case cmdWord of
-                    "balance"     -> fmtBalance (bsLastFetchedBalances st)
-                    "status"      -> fmtStatus st startTime now
-                    "pnl"         -> fmtPnl (bsPnlAccumulated st) (bsRoundCount st)
-                    "open_orders" -> fmtOpenOrders (length (bsOpenOrders st))
-                    "history"     -> fmtHistory (bsTradeHistory st) argN
-                    _             -> "Comandos:\n/balance\n/status\n/pnl\n/open_orders\n/history [N]"
         cfgForChat = config { cfgTelegramChatId = T.pack (show chatId) }
+    reply <- case cmdWord of
+                    "balance"     -> either (\_ -> "Error obteniendo balance del exchange.")
+                                            fmtBalance
+                                     <$> fetchBalances exchange
+                    "status"      -> return $ fmtStatus st startTime now
+                    "pnl"         -> return $ fmtPnl (bsPnlAccumulated st) (bsRoundCount st)
+                    "open_orders" -> return $ fmtOpenOrders (length (bsOpenOrders st))
+                    "history"     -> return $ fmtHistory (bsTradeHistory st) argN
+                    _             -> return "Comandos:\n/balance\n/status\n/pnl\n/open_orders\n/history [N]"
     sendTelegramMessage cfgForChat reply >>= \case
         Left err -> putStrLn $ "Error respondiendo comando Telegram: " ++ show err
         Right _  -> pure ()
 
 
-runCommandListener :: Config -> IORef BotState -> UTCTime -> IO ()
-runCommandListener config stateRef startTime = go 0
+runCommandListener :: Exchange e => e -> Config -> IORef BotState -> UTCTime -> IO ()
+runCommandListener exchange config stateRef startTime = go 0
   where
     go lastId = do
         updates <- fetchUpdates config (lastId + 1)
                      `catch` \(_ :: SomeException) -> return []
-        mapM_ (handleUpdate config stateRef startTime) updates
+        mapM_ (handleUpdate exchange config stateRef startTime) updates
         let nextId = foldl (\acc u -> max acc (tgUpdateId u)) lastId updates
         go nextId
 
-handleUpdate :: Config -> IORef BotState -> UTCTime -> TgUpdate -> IO ()
-handleUpdate config stateRef startTime upd =
+handleUpdate :: Exchange e => e -> Config -> IORef BotState -> UTCTime -> TgUpdate -> IO ()
+handleUpdate exchange config stateRef startTime upd =
     case tgUpdateMessage upd of
         Nothing  -> pure ()
         Just msg -> case tgMsgText msg of
@@ -126,7 +128,7 @@ handleUpdate config stateRef startTime upd =
             Just txt -> do
                 let cid = tgChatId (tgMsgChat msg)
                 st <- readIORef stateRef
-                dispatchCommand config st startTime txt cid
+                dispatchCommand exchange config st startTime txt cid
 
 
 fmtBalance :: Map Asset Double -> T.Text

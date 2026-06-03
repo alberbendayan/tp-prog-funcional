@@ -16,7 +16,8 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, listToMaybe)
+import Control.Monad (guard)
 import Data.Time.Clock (UTCTime)
 
 parseAsset :: Text -> Maybe Asset
@@ -26,18 +27,16 @@ parseAsset "USDT" = Just USDT
 parseAsset "BNB"  = Just BNB
 parseAsset _      = Nothing
 
+knownAssets :: [(Text, Asset)]
+knownAssets = [("BTC", BTC), ("ETH", ETH), ("USDT", USDT), ("BNB", BNB)]
+
 parseSymbol :: Text -> Maybe Pair
-parseSymbol symbol = tryParse [("BTC", BTC), ("ETH", ETH), ("USDT", USDT), ("BNB", BNB)]
+parseSymbol symbol = listToMaybe $ mapMaybe tryOne knownAssets
   where
-    tryParse [] = Nothing
-    tryParse ((baseStr, baseAsset):rest) =
-      if T.isPrefixOf baseStr symbol
-        then
-          let quoteStr = T.drop (T.length baseStr) symbol
-          in case parseAsset quoteStr of
-               Just quoteAsset -> Just $ Pair baseAsset quoteAsset
-               Nothing -> tryParse rest
-        else tryParse rest
+    tryOne (baseStr, baseAsset) = do
+        guard (T.isPrefixOf baseStr symbol)
+        quoteAsset <- parseAsset (T.drop (T.length baseStr) symbol)
+        return (Pair baseAsset quoteAsset)
 
 symbolToPair :: Symbol -> Maybe Pair
 symbolToPair (Symbol s) = parseSymbol s
@@ -79,14 +78,8 @@ data TickerResult
   | TickerNotSupported Symbol
   | TickerFailed Client.BinanceError
 
-pairsForBase :: [Asset] -> Asset -> [Pair]
-pairsForBase assets baseAsset =
-    let validQuotes = filter (/= baseAsset) assets
-    in  map (Pair baseAsset) validQuotes
-
 generateAllPairs :: [Asset] -> [Pair]
-generateAllPairs assets =
-    concatMap (pairsForBase assets) assets
+generateAllPairs assets = [Pair b q | b <- assets, q <- assets, b /= q]
 
 fetchSingleTicker :: T.Text -> Symbol -> IO TickerResult
 fetchSingleTicker url sym@(Symbol rawSym) = do
@@ -99,27 +92,37 @@ fetchSingleTicker url sym@(Symbol rawSym) = do
     Left err -> return (TickerFailed err)
 
 fetchBookTickersForPairs :: T.Text -> [Pair] -> IO [TickerResult]
-fetchBookTickersForPairs baseUrl pairs = do
-    let symbols = map pairToSymbol pairs
-    results <- mapM (fetchSingleTicker baseUrl) symbols
-    return results
+fetchBookTickersForPairs baseUrl = mapM (fetchSingleTicker baseUrl) . map pairToSymbol
+
+totalFillQty :: [OrderFill] -> Double
+totalFillQty = sum . map ofQty
+
+fillWeightedValue :: OrderFill -> Double
+fillWeightedValue f = ofQty f * unPrice (ofPrice f)
+
+weightedFillPrice :: [OrderFill] -> Double
+weightedFillPrice = sum . map fillWeightedValue
+
+avgFillPrice :: [OrderFill] -> Double
+avgFillPrice fills
+    | totalFillQty fills > 0 = weightedFillPrice fills / totalFillQty fills
+    | otherwise              = 0
+
+totalFillFee :: [OrderFill] -> Double
+totalFillFee = sum . map ofCommission
+
+buildFill :: [OrderFill] -> OrderResponse -> OrderSide -> Pair -> UTCTime -> Fill
+buildFill fills resp side pair time = Fill
+    { fillPair       = pair
+    , fillSide       = side
+    , fillAmountBase = orExecutedQty resp
+    , fillPrice      = Price (avgFillPrice fills)
+    , fillFee        = totalFillFee fills
+    , fillFeeAsset   = ofCommissionAsset (head fills)
+    , fillTime       = time
+    }
 
 orderResponseToFill :: OrderResponse -> OrderSide -> Pair -> UTCTime -> Either T.Text Fill
 orderResponseToFill resp side pair time
     | null (orFills resp) = Left "orderResponseToFill: no fills en la respuesta"
-    | otherwise =
-        let fills      = orFills resp
-            totalQty   = sum $ map ofQty fills
-            weightedP  = sum $ map (\f -> ofQty f * unPrice (ofPrice f)) fills
-            avgPrice   = if totalQty > 0 then weightedP / totalQty else 0
-            totalFee   = sum $ map ofCommission fills
-            feeAsset   = ofCommissionAsset (head fills)
-        in Right $ Fill
-            { fillPair       = pair
-            , fillSide       = side
-            , fillAmountBase = orExecutedQty resp
-            , fillPrice      = Price avgPrice
-            , fillFee        = totalFee
-            , fillFeeAsset   = feeAsset
-            , fillTime       = time
-            }
+    | otherwise           = Right $ buildFill (orFills resp) resp side pair time
