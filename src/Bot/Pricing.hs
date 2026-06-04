@@ -5,18 +5,18 @@ module Bot.Pricing
   , assetUsdtRateWhenBuying
   ) where
 
-import Bot.Domain (Asset(..), MarketSnapshot(..), Pair(..), PairQuote(..), Price(..))
+import Bot.Domain (Asset(..), MarketSnapshot(..), Pair(..), PairQuote(..), Price(..), UsdtRate(..))
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 
-assetUsdtRateWhenSelling :: MarketSnapshot -> Asset -> Either T.Text Double
-assetUsdtRateWhenSelling _ USDT = Right 1
+assetUsdtRateWhenSelling :: MarketSnapshot -> Asset -> Either T.Text UsdtRate
+assetUsdtRateWhenSelling _ USDT = Right (UsdtRate 1)
 assetUsdtRateWhenSelling snapshot asset =
   assetUsdtPerUnit (snapshotQuotes snapshot) asset bidPrice askPrice "ask"
 
-assetUsdtRateWhenBuying :: MarketSnapshot -> Asset -> Either T.Text Double
-assetUsdtRateWhenBuying _ USDT = Right 1
+assetUsdtRateWhenBuying :: MarketSnapshot -> Asset -> Either T.Text UsdtRate
+assetUsdtRateWhenBuying _ USDT = Right (UsdtRate 1)
 assetUsdtRateWhenBuying snapshot asset =
   assetUsdtPerUnit (snapshotQuotes snapshot) asset askPrice bidPrice "bid"
 
@@ -26,7 +26,7 @@ assetUsdtPerUnit
   -> (PairQuote -> Price)
   -> (PairQuote -> Price)
   -> T.Text
-  -> Either T.Text Double
+  -> Either T.Text UsdtRate
 assetUsdtPerUnit quotes asset directPick inversePick inverseLabel =
   usdtFromDirectPair `orElse` usdtFromInversePair
   where
@@ -48,19 +48,19 @@ requirePairQuote :: Map Pair PairQuote -> Pair -> T.Text -> Either T.Text PairQu
 requirePairQuote quotes pair errMsg =
   maybe (Left errMsg) Right (M.lookup pair quotes)
 
-usdtPerAssetDirect :: PairQuote -> (PairQuote -> Price) -> Pair -> Either T.Text Double
+usdtPerAssetDirect :: PairQuote -> (PairQuote -> Price) -> Pair -> Either T.Text UsdtRate
 usdtPerAssetDirect q pick pair =
   let px = unPrice (pick q)
    in if px <= 0
         then Left $ "Cotización inválida para " <> T.pack (show pair)
-        else Right px
+        else Right (UsdtRate px)
 
-usdtPerAssetInverse :: PairQuote -> (PairQuote -> Price) -> T.Text -> Pair -> Either T.Text Double
+usdtPerAssetInverse :: PairQuote -> (PairQuote -> Price) -> T.Text -> Pair -> Either T.Text UsdtRate
 usdtPerAssetInverse q pick label pair =
   let px = unPrice (pick q)
    in if px <= 0
         then Left $ "Cotización inválida (" <> label <> ") para " <> T.pack (show pair)
-        else Right (1 / px)
+        else Right (UsdtRate (1 / px))
 
 orElse :: Either T.Text a -> Either T.Text a -> Either T.Text a
 orElse (Right x) _ = Right x

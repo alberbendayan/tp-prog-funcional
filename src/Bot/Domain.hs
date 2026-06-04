@@ -21,6 +21,8 @@ module Bot.Domain
   , ArbOpportunity(..)
   , arbProfitAbs
   , arbProfitPerc
+  , ProfitPct(..)
+  , UsdtRate(..)
   , Decision(..)
   , OrderSide(..)
   , OrderStep(..)
@@ -134,13 +136,19 @@ data ArbOpportunity = ArbOpportunity
   , arbAmountOut :: AssetQty
   } deriving (Show, Eq, Generic)
 
+newtype ProfitPct = ProfitPct { unProfitPct :: Double }
+  deriving (Show, Eq, Ord, Generic)
+
+newtype UsdtRate = UsdtRate { unUsdtRate :: Double }
+  deriving (Show, Eq, Ord, Generic)
+
 arbProfitAbs :: ArbOpportunity -> Double
 arbProfitAbs o = qtyAmount (arbAmountOut o) - qtyAmount (arbAmountIn o)
 
-arbProfitPerc :: ArbOpportunity -> Double
+arbProfitPerc :: ArbOpportunity -> ProfitPct
 arbProfitPerc o
-  | qtyAmount (arbAmountIn o) > 0 = 100 * arbProfitAbs o / qtyAmount (arbAmountIn o)
-  | otherwise         = 0
+  | qtyAmount (arbAmountIn o) > 0 = ProfitPct $ 100 * arbProfitAbs o / qtyAmount (arbAmountIn o)
+  | otherwise                     = ProfitPct 0
 
 data Decision
   = NoTrade

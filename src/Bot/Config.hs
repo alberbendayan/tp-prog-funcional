@@ -11,6 +11,7 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import System.Environment (lookupEnv)
 import Configuration.Dotenv (loadFile, defaultConfig)
+import Bot.Domain (ProfitPct(..))
 
 data ExchangeKind
     = ExchangeKindBinance
@@ -28,7 +29,7 @@ data Config = Config
     { cfgApiKey          :: Text
     , cfgApiSecret       :: Text
     , cfgBaseUrl         :: Text
-    , cfgMinProfit       :: Double
+    , cfgMinProfit       :: ProfitPct
     , cfgMaxTradeUSDT    :: Double
     , cfgCommissionRate  :: Double
     , cfgExchangeKind    :: ExchangeKind
@@ -46,7 +47,7 @@ loadConfig = do
     apiKey       <- getEnvOrDefault "BINANCE_API_KEY" T.empty T.pack
     apiSecret    <- getEnvOrDefault "BINANCE_API_SECRET" T.empty T.pack
     baseUrl      <- getEnvOrDefault "BINANCE_BASE_URL" "https://testnet.binance.vision" T.pack
-    minProfit       <- getEnvOrDefault "BOT_MIN_PROFIT_PERCENTAGE" 0.5 read
+    minProfit       <- getEnvOrDefault "BOT_MIN_PROFIT_PERCENTAGE" (ProfitPct 0.5) (ProfitPct . read)
     maxTradeUSDT    <- getEnvOrDefault "BOT_MAX_TRADE_AMOUNT_USDT" 100.0 read
     commissionRate  <- getEnvOrDefault "BOT_COMMISSION_RATE" 0.001 read
 

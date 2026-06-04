@@ -102,8 +102,8 @@ buildCandidateAmounts snapshot maxUsdtNotional bals =
     , let bal = M.findWithDefault 0 asset bals
     , bal > 1e-12
     , Right rate <- [assetUsdtRateWhenSelling snapshot asset]
-    , rate > 0
-    , let qtyMaxNotional = maxUsdtNotional / rate
+    , unUsdtRate rate > 0
+    , let qtyMaxNotional = maxUsdtNotional / unUsdtRate rate
     , let qty = min bal qtyMaxNotional
     , qty > 1e-12
     ]

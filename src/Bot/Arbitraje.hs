@@ -128,7 +128,7 @@ detectOpportunities paths snapshot amountIn =
         let liqMax = fromMaybe q (maxAmountForPath quotes path (AssetQty a q))
         in AssetQty a (min q liqMax)
 
-makeDecision :: Double -> [ArbOpportunity] -> Decision
+makeDecision :: ProfitPct -> [ArbOpportunity] -> Decision
 makeDecision minProfitPct opps =
     case filter (\o -> arbProfitPerc o >= minProfitPct) opps of
         []   -> NoTrade
@@ -151,11 +151,16 @@ data PlanError
     | StepQtyNegative       { planErrStep :: Int }
     deriving (Show, Eq)
 
+assetPrecision :: Asset -> Double
+assetPrecision BTC  = 1e5
+assetPrecision ETH  = 1e4
+assetPrecision BNB  = 1e2
+assetPrecision USDT = 1e2
+
 roundToAssetPrecision :: Asset -> Double -> Double
-roundToAssetPrecision BTC  q = fromIntegral (floor (q * 1e5) :: Integer) / 1e5
-roundToAssetPrecision ETH  q = fromIntegral (floor (q * 1e4) :: Integer) / 1e4
-roundToAssetPrecision BNB  q = fromIntegral (floor (q * 1e2) :: Integer) / 1e2
-roundToAssetPrecision USDT q = fromIntegral (floor (q * 1e2) :: Integer) / 1e2
+roundToAssetPrecision asset q =
+    let p = assetPrecision asset
+    in fromIntegral (floor (q * p) :: Integer) / p
 
 quantizeStepQty :: Pair -> MarketOrderQty -> MarketOrderQty
 quantizeStepQty pair (QtyBase  q) = QtyBase  (roundToAssetPrecision (base  pair) q)

@@ -205,10 +205,10 @@ netPnlUsdtFromDeltas snapshot deltas =
       | abs deltaQty <= 1e-18 = Right 0
       | deltaQty > 0 = do
           rate <- assetUsdtRateWhenSelling snapshot asset
-          Right (deltaQty * rate)
+          Right (deltaQty * unUsdtRate rate)
       | otherwise = do
           rate <- assetUsdtRateWhenBuying snapshot asset
-          Right (deltaQty * rate)
+          Right (deltaQty * unUsdtRate rate)
 
 validateSameAsset :: AssetQty -> AssetQty -> Either T.Text ()
 validateSameAsset amtIn amtOut
