@@ -33,14 +33,12 @@ instance Arbitrary PairQuote where
 instance Arbitrary ProfitPct where
     arbitrary = ProfitPct . abs <$> arbitrary
 
--- Propiedad 1:
 -- makeDecision con lista vacía siempre devuelve NoTrade,
 -- sin importar el umbral.
 prop_noTradeOnEmpty :: ProfitPct -> Bool
 prop_noTradeOnEmpty threshold = makeDecision threshold [] == NoTrade
 
--- ---------------------------------------------------------------------------
--- Propiedad 2:
+
 -- Todos los caminos generados por allTriangularPaths forman ciclos válidos:
 -- quote(par1) == base(par2), quote(par2) == base(par3), quote(par3) == base(par1).
 prop_pathsAreValidCycles :: [Asset] -> Bool
@@ -53,8 +51,6 @@ prop_pathsAreValidCycles assets =
         quote (arbPair2 p) == base (arbPair3 p) &&
         quote (arbPair3 p) == base (arbPair1 p)
 
--- ---------------------------------------------------------------------------
--- Propiedad 3:
 -- Una oportunidad con ganancia >= umbral es detectada por makeDecision.
 -- Si hay al menos una oportunidad que supera el umbral, el resultado es DoTrade.
 prop_decisionPicksWhenProfitable :: Property
@@ -67,10 +63,9 @@ prop_decisionPicksWhenProfitable =
     genProfitableOpp = do
         asset    <- arbitrary
         amtIn    <- choose (0.001, 100.0)
-        profit   <- choose (0.01, 10.0)   -- porcentaje de ganancia
-        threshold <- choose (0, profit)    -- umbral por debajo de la ganancia
+        profit   <- choose (0.01, 10.0)
+        threshold <- choose (0, profit)    -- umbral bajo el profit
         let amtOut = amtIn * (1 + profit / 100)
-            -- camino mínimo válido: tres pares que forman ciclo A->B->C->A
             (a, b, c) = (BTC, ETH, USDT)
             path = case mkTriangularPath (Pair a b) (Pair b c) (Pair c a) of
                      Just p  -> p
@@ -78,8 +73,6 @@ prop_decisionPicksWhenProfitable =
             opp  = ArbOpportunity path (AssetQty asset amtIn) (AssetQty asset amtOut)
         return (threshold, opp)
 
--- ---------------------------------------------------------------------------
--- Propiedad 4 (bonus):
 -- assetUsdtRateWhenSelling USDT siempre devuelve Right 1.0
 prop_usdtRateIsOne :: MarketSnapshot -> Bool
 prop_usdtRateIsOne snap =
