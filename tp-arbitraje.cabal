@@ -60,3 +60,12 @@ executable tp-arbitraje
     hs-source-dirs:   app
     build-depends:    tp-arbitraje
     ghc-options:      -threaded
+
+test-suite tp-arbitraje-test
+    import:           shared-properties
+    type:             exitcode-stdio-1.0
+    main-is:          Spec.hs
+    hs-source-dirs:   test
+    build-depends:
+        tp-arbitraje,
+        QuickCheck >= 2.14 && < 2.17
