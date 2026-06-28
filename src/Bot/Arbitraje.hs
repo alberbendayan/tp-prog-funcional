@@ -9,9 +9,16 @@ module Bot.Arbitraje
     , PlanError(..)
     , validateAndQuantizePlan
     , validatePlanLiquidity
+    , tradingAssets
+    , buildCandidateAmounts
+    , computeDecision
+    , buildValidPlan
+    , maxHistorySize
+    , trimHistory
     ) where
 
 import Bot.Domain
+import Bot.Pricing (assetUsdtRateWhenSelling)
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as T
 import Data.List (tails, maximumBy)
@@ -206,3 +213,41 @@ validatePlanLiquidity snapshot plan =
                           <> " > askQty " <> T.pack (show (askQty q)) <> ")"
     checkLiquidity n _ _ _ =
         Left $ "paso " <> T.pack (show n) <> ": combinacion inesperada de side/qty"
+
+tradingAssets :: [Asset]
+tradingAssets = [BTC, ETH, BNB, USDT]
+
+buildCandidateAmounts :: MarketSnapshot -> Double -> Map.Map Asset Double -> [AssetQty]
+buildCandidateAmounts snapshot maxUsdtNotional bals =
+    [ AssetQty asset qty
+    | asset <- tradingAssets
+    , let bal = Map.findWithDefault 0 asset bals
+    , bal > 1e-12
+    , Right rate <- [assetUsdtRateWhenSelling snapshot asset]
+    , unUsdtRate rate > 0
+    , let qtyMaxNotional = maxUsdtNotional / unUsdtRate rate
+    , let qty = min bal qtyMaxNotional
+    , qty > 1e-12
+    ]
+
+computeDecision :: ProfitPct -> MarketSnapshot -> [AssetQty] -> Decision
+computeDecision minProfit snapshot candidates =
+    let paths = allTriangularPaths tradingAssets
+        opps  = concatMap (detectOpportunities paths snapshot) candidates
+    in makeDecision minProfit opps
+
+buildValidPlan :: MarketSnapshot -> ArbOpportunity -> Either T.Text ExecutionPlan
+buildValidPlan snapshot opp =
+    case opportunityToExecutionPlan snapshot opp of
+        Nothing   -> Left "No se pudo construir el plan de ejecución"
+        Just plan -> case validateAndQuantizePlan plan of
+            Left planErr -> Left $ "Plan inválido tras cuantización: " <> T.pack (show planErr)
+            Right valid  -> case validatePlanLiquidity snapshot valid of
+                Left liqErr -> Left $ "Liquidez insuficiente para ejecutar: " <> liqErr
+                Right ()    -> Right valid
+
+maxHistorySize :: Int
+maxHistorySize = 100
+
+trimHistory :: Int -> [a] -> [a]
+trimHistory n xs = drop (max 0 (length xs - n)) xs

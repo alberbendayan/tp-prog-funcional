@@ -7,7 +7,6 @@ import Bot.Domain
 import Bot.Arbitraje
 import Bot.Runtime
 import Bot.Persist
-import Bot.Pricing (assetUsdtRateWhenSelling)
 import Exchange.Interface
 import Exchange.AppExchange (AppExchange, configureAppExchange)
 import Notification.Telegram
@@ -25,19 +24,6 @@ import Data.Time.Clock            (UTCTime, getCurrentTime)
 import qualified Data.Map.Strict as M
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
-
-tradingAssets :: [Asset]
-tradingAssets = [BTC, ETH, BNB, USDT]
-
-buildValidPlan :: MarketSnapshot -> ArbOpportunity -> Either T.Text ExecutionPlan
-buildValidPlan snapshot opp =
-    case opportunityToExecutionPlan snapshot opp of
-        Nothing   -> Left "No se pudo construir el plan de ejecución"
-        Just plan -> case validateAndQuantizePlan plan of
-            Left planErr -> Left $ "Plan inválido tras cuantización: " <> T.pack (show planErr)
-            Right valid  -> case validatePlanLiquidity snapshot valid of
-                Left liqErr -> Left $ "Liquidez insuficiente para ejecutar: " <> liqErr
-                Right ()    -> Right valid
 
 printRoundResult :: RoundResult -> IO ()
 printRoundResult rr = do
@@ -95,19 +81,6 @@ executeDecision config exchange snapshot (DoTrade opp) st stateRef startTime =
                     return (Just (formatRoundResult rr), newSt)
 
 
-buildCandidateAmounts :: MarketSnapshot -> Double -> Map Asset Double -> [AssetQty]
-buildCandidateAmounts snapshot maxUsdtNotional bals =
-    [ AssetQty asset qty
-    | asset <- tradingAssets
-    , let bal = M.findWithDefault 0 asset bals
-    , bal > 1e-12
-    , Right rate <- [assetUsdtRateWhenSelling snapshot asset]
-    , unUsdtRate rate > 0
-    , let qtyMaxNotional = maxUsdtNotional / unUsdtRate rate
-    , let qty = min bal qtyMaxNotional
-    , qty > 1e-12
-    ]
-
 logCandidateAmounts :: [AssetQty] -> IO ()
 logCandidateAmounts [] =
     putStrLn "Montos candidatos: ninguno (sin balance o sin cotización a USDT)."
@@ -144,12 +117,6 @@ mkPersistedRound rr = do
         , prStatus    = status
         }
 
-computeDecision :: Config -> MarketSnapshot -> [AssetQty] -> Decision
-computeDecision config snapshot candidates =
-    let paths = allTriangularPaths tradingAssets
-        opps  = concatMap (detectOpportunities paths snapshot) candidates
-    in makeDecision (cfgMinProfit config) opps
-
 recordRound :: Map Asset Double -> BotState -> IO BotState
 recordRound fetchedBals newSt =
     case bsLastRoundResult newSt of
@@ -157,7 +124,7 @@ recordRound fetchedBals newSt =
         Just rr -> do
             pr <- mkPersistedRound rr
             let history = bsTradeHistory newSt ++ [pr]
-                trimmed = drop (max 0 (length history - 100)) history
+                trimmed = trimHistory maxHistorySize history
             return newSt { bsLastFetchedBalances = fetchedBals, bsTradeHistory = trimmed }
 
 notifyTelegram :: Config -> Decision -> Maybe T.Text -> IO ()
@@ -181,7 +148,7 @@ handleSnapshot config exchange snapshot st stateRef startTime = do
     let bals       = either (const M.empty) id balancesResult
         candidates = buildCandidateAmounts snapshot (cfgMaxTradeUSDT config) bals
     logCandidateAmounts candidates
-    let decision = computeDecision config snapshot candidates
+    let decision = computeDecision (cfgMinProfit config) snapshot candidates
     TIO.putStrLn $ "\n" <> formatDecision decision
     (postTradeReport, newSt) <- executeDecision config exchange snapshot decision st stateRef startTime
     newSt' <- recordRound bals newSt
