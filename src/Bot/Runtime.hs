@@ -13,6 +13,7 @@ module Bot.Runtime
   , checkConnectivityOrThrow
   , fetchMarketSnapshotOrThrow
   , executeRound
+  , netPnlUsdtFromDeltas
   ) where
 
 import Bot.Config (Config)

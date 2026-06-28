@@ -144,40 +144,48 @@ mkPersistedRound rr = do
         , prStatus    = status
         }
 
-handleSnapshot :: Config -> AppExchange -> MarketSnapshot -> BotState -> IORef BotState -> UTCTime -> IO BotState
-handleSnapshot config exchange snapshot st stateRef startTime = do
-    balancesResult  <- fetchBalances exchange
-    logBalanceResult balancesResult
+computeDecision :: Config -> MarketSnapshot -> [AssetQty] -> Decision
+computeDecision config snapshot candidates =
     let paths = allTriangularPaths tradingAssets
-        bals = either (const M.empty) id balancesResult
-        maxUsdt = cfgMaxTradeUSDT config
-        candidates = buildCandidateAmounts snapshot maxUsdt bals
-    logCandidateAmounts candidates
-    let opps =
-          concatMap (\amt -> detectOpportunities paths snapshot amt) candidates
-        decision = makeDecision (cfgMinProfit config) opps
-    TIO.putStrLn $ "\n" <> formatDecision decision
-    (postTradeReport, newSt) <- executeDecision config exchange snapshot decision st stateRef startTime
-    let fetchedBals = either (const M.empty) id balancesResult
-    newSt' <- case bsLastRoundResult newSt of
+        opps  = concatMap (detectOpportunities paths snapshot) candidates
+    in makeDecision (cfgMinProfit config) opps
+
+recordRound :: Map Asset Double -> BotState -> IO BotState
+recordRound fetchedBals newSt =
+    case bsLastRoundResult newSt of
         Nothing -> return newSt { bsLastFetchedBalances = fetchedBals }
         Just rr -> do
             pr <- mkPersistedRound rr
             let history = bsTradeHistory newSt ++ [pr]
                 trimmed = drop (max 0 (length history - 100)) history
             return newSt { bsLastFetchedBalances = fetchedBals, bsTradeHistory = trimmed }
+
+notifyTelegram :: Config -> Decision -> Maybe T.Text -> IO ()
+notifyTelegram config decision postTradeReport =
     when (cfgTelegramEnabled config) $ do
-        sendTelegramMessage config (formatDecision decision) >>=
-            either
-                (\err -> putStrLn $ "Error enviando Telegram: " ++ show err)
-                (\_ -> putStrLn "Notificación de decisión enviada a Telegram")
+        send (formatDecision decision) "de decisión"
         case postTradeReport of
-            Nothing -> return ()
-            Just report ->
-                sendTelegramMessage config report >>=
-                    either
-                        (\err -> putStrLn $ "Error enviando Telegram post-trade: " ++ show err)
-                        (\_ -> putStrLn "Notificación post-trade enviada a Telegram")
+            Nothing     -> return ()
+            Just report -> send report "post-trade"
+  where
+    send msg label =
+        sendTelegramMessage config msg >>=
+            either
+                (\err -> putStrLn $ "Error enviando Telegram " ++ label ++ ": " ++ show err)
+                (\_   -> putStrLn $ "Notificación " ++ label ++ " enviada a Telegram")
+
+handleSnapshot :: Config -> AppExchange -> MarketSnapshot -> BotState -> IORef BotState -> UTCTime -> IO BotState
+handleSnapshot config exchange snapshot st stateRef startTime = do
+    balancesResult <- fetchBalances exchange
+    logBalanceResult balancesResult
+    let bals       = either (const M.empty) id balancesResult
+        candidates = buildCandidateAmounts snapshot (cfgMaxTradeUSDT config) bals
+    logCandidateAmounts candidates
+    let decision = computeDecision config snapshot candidates
+    TIO.putStrLn $ "\n" <> formatDecision decision
+    (postTradeReport, newSt) <- executeDecision config exchange snapshot decision st stateRef startTime
+    newSt' <- recordRound bals newSt
+    notifyTelegram config decision postTradeReport
     return newSt'
 
 runOneRound :: BotM AppExchange ()

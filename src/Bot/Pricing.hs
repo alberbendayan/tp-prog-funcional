@@ -35,32 +35,26 @@ assetUsdtPerUnit quotes asset directPick inversePick inverseLabel =
 
     usdtFromDirectPair = do
       q <- requirePairQuote quotes directPair directErr
-      usdtPerAssetDirect q directPick directPair
+      usdtRateFromPrice id invalidDirectErr (directPick q)
 
     usdtFromInversePair = do
       q <- requirePairQuote quotes inversePair inverseErr
-      usdtPerAssetInverse q inversePick inverseLabel inversePair
+      usdtRateFromPrice (1 /) invalidInverseErr (inversePick q)
 
     directErr  = "Sin cotización directa a USDT para " <> T.pack (show asset)
     inverseErr = "Sin cotización inversa a USDT para " <> T.pack (show asset)
+
+    invalidDirectErr  = "Cotización inválida para " <> T.pack (show directPair)
+    invalidInverseErr = "Cotización inválida (" <> inverseLabel <> ") para " <> T.pack (show inversePair)
 
 requirePairQuote :: Map Pair PairQuote -> Pair -> T.Text -> Either T.Text PairQuote
 requirePairQuote quotes pair errMsg =
   maybe (Left errMsg) Right (M.lookup pair quotes)
 
-usdtPerAssetDirect :: PairQuote -> (PairQuote -> Price) -> Pair -> Either T.Text UsdtRate
-usdtPerAssetDirect q pick pair =
-  let px = unPrice (pick q)
-   in if px <= 0
-        then Left $ "Cotización inválida para " <> T.pack (show pair)
-        else Right (UsdtRate px)
-
-usdtPerAssetInverse :: PairQuote -> (PairQuote -> Price) -> T.Text -> Pair -> Either T.Text UsdtRate
-usdtPerAssetInverse q pick label pair =
-  let px = unPrice (pick q)
-   in if px <= 0
-        then Left $ "Cotización inválida (" <> label <> ") para " <> T.pack (show pair)
-        else Right (UsdtRate (1 / px))
+usdtRateFromPrice :: (Double -> Double) -> T.Text -> Price -> Either T.Text UsdtRate
+usdtRateFromPrice transform errMsg (Price px)
+  | px <= 0   = Left errMsg
+  | otherwise = Right (UsdtRate (transform px))
 
 orElse :: Either T.Text a -> Either T.Text a -> Either T.Text a
 orElse (Right x) _ = Right x
