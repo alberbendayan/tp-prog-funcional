@@ -139,7 +139,7 @@ makeDecision :: ProfitPct -> [ArbOpportunity] -> Decision
 makeDecision minProfitPct opps =
     case filter (\o -> arbProfitPerc o >= minProfitPct) opps of
         []   -> NoTrade
-        good -> DoTrade $ maximumBy (comparing arbProfitPerc) good
+        profitableArbOpps -> DoTrade $ maximumBy (comparing arbProfitPerc) profitableArbOpps
 
 opportunityToExecutionPlan :: MarketSnapshot -> ArbOpportunity -> Maybe ExecutionPlan
 opportunityToExecutionPlan snapshot opp = do
