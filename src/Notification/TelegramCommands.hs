@@ -96,9 +96,7 @@ dispatchCommand exchange config st startTime cmd chatId = do
                     _         -> 5
         cfgForChat = config { cfgTelegramChatId = T.pack (show chatId) }
     reply <- case cmdWord of
-                    "balance"     -> either (\_ -> "Error obteniendo balance del exchange.")
-                                            fmtBalance
-                                     <$> fetchBalances exchange
+                    "balance"     -> fmtBalanceReply exchange -- Consulta por red y ya devuelvo IO T.Text
                     "status"      -> return $ fmtStatus st startTime now
                     "pnl"         -> return $ fmtPnl (bsPnlAccumulated st) (bsRoundCount st)
                     "open_orders" -> return $ fmtOpenOrders (length (bsOpenOrders st))
@@ -116,7 +114,7 @@ runCommandListener exchange config stateRef startTime = go 0
         updates <- fetchUpdates config (lastId + 1)
                      `catch` \(_ :: SomeException) -> return []
         mapM_ (handleUpdate exchange config stateRef startTime) updates
-        let nextId = foldl (\acc u -> max acc (tgUpdateId u)) lastId updates
+        let nextId = maximum (lastId : map tgUpdateId updates)
         go nextId
 
 handleUpdate :: Exchange e => e -> Config -> IORef BotState -> UTCTime -> TgUpdate -> IO ()
@@ -127,9 +125,14 @@ handleUpdate exchange config stateRef startTime upd =
             Nothing  -> pure ()
             Just txt -> do
                 let cid = tgChatId (tgMsgChat msg)
-                st <- readIORef stateRef
-                dispatchCommand exchange config st startTime txt cid
+                botState <- readIORef stateRef
+                dispatchCommand exchange config botState startTime txt cid
 
+
+fmtBalanceReply :: Exchange e => e -> IO T.Text
+fmtBalanceReply exchange =
+    either (const "Error obteniendo balance del exchange.") fmtBalance
+        <$> fetchBalances exchange
 
 fmtBalance :: Map Asset Double -> T.Text
 fmtBalance bals

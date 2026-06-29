@@ -16,6 +16,7 @@ import Binance.API.Endpoints
 import qualified Binance.API.Auth as Auth
 import Control.Exception (Exception, try, SomeException)
 import Data.Aeson (FromJSON)
+import Data.List (foldl')
 import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.Encoding as TE
@@ -130,7 +131,7 @@ extractPathParts :: Text -> [Text]
 extractPathParts = filter (not . T.null) . T.splitOn "/"
 
 buildUrl :: Text -> Text -> Url 'Https
-buildUrl baseUrl endpoint = foldl (/:) (https (extractHost baseUrl)) (extractPathParts endpoint)
+buildUrl baseUrl endpoint = foldl' (/:) (https (extractHost baseUrl)) (extractPathParts endpoint)
 
 buildParams :: [(Text, Text)] -> Option 'Https
 buildParams = mconcat . map (uncurry (=:))

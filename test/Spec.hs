@@ -34,6 +34,15 @@ instance Arbitrary PairQuote where
 instance Arbitrary ProfitPct where
     arbitrary = ProfitPct . abs <$> arbitrary
 
+instance Arbitrary MarketSnapshot where
+    arbitrary = do
+        entries <- listOf $ do
+            b <- arbitrary
+            q <- arbitrary `suchThat` (/= b)
+            pq <- arbitrary
+            return (Pair b q, pq)
+        return $ MarketSnapshot (Map.fromList entries)
+
 -- makeDecision con lista vacía siempre devuelve NoTrade,
 -- sin importar el umbral.
 prop_noTradeOnEmpty :: ProfitPct -> Bool
@@ -99,15 +108,6 @@ prop_usdtRateIsOne :: MarketSnapshot -> Bool
 prop_usdtRateIsOne snap =
     assetUsdtRateWhenSelling snap USDT == Right (UsdtRate 1.0) &&
     assetUsdtRateWhenBuying  snap USDT == Right (UsdtRate 1.0)
-
-instance Arbitrary MarketSnapshot where
-    arbitrary = do
-        entries <- listOf $ do
-            b <- arbitrary
-            q <- arbitrary `suchThat` (/= b)
-            pq <- arbitrary
-            return (Pair b q, pq)
-        return $ MarketSnapshot (Map.fromList entries)
 
 approxEq :: Double -> Double -> Bool
 approxEq a b = abs (a - b) <= 1e-9 * (1 + abs a + abs b)
